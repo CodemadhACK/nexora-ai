@@ -1,0 +1,73 @@
+{
+  "name": "nexora-ai",
+  "productName": "Nexora AI",
+  "version": "3.0.0",
+  "description": "Nexora AI — an always-on-top technical interview and problem-solving assistant. Screenshot a problem and get the answer, the reasoning, the code, the complexity and how to explain it out loud. Runs two agents in parallel across Gemini and OpenAI.",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --enable-logging",
+    "test": "node --test",
+    "icons": "node tools/make-icons.js",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.nexora.ai",
+    "productName": "Nexora AI",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "index.html",
+      "audio-dsp.js",
+      "audio-worklet.js",
+      "safe-mode.js",
+      "presentation-mode.js",
+      "presentation-watch.js",
+      "tray-menu.js",
+      "tray-icon.js",
+      "hotkeys.js",
+      "credentials.js",
+      "displays.js",
+      "agents.js",
+      "prompts.js",
+      "settings-schema.js",
+      "providers/**/*",
+      "icon.png",
+      "icon.ico"
+    ],
+    "win": {
+      "target": ["nsis"],
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Nexora AI"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "icon": "icon.icns",
+      "darkModeSupport": true,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Nexora uses your microphone for push-to-talk questions.",
+        "NSScreenCaptureUsageDescription": "Nexora captures a screenshot of the display you choose when you ask a question about your screen."
+      }
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "icon": "icon.png",
+      "category": "Development"
+    }
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  }
+}

@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';">
+<title>Nexora AI</title>
+<style>
+  :root {
+    /* Opaque enough to stay legible when backdrop-filter is unavailable or the
+       compositor skips it — this is a reading surface first, glass second. */
+    --bg: rgba(13, 15, 23, 0.95);
+    --bg-solid: #0d0f17;
+    --raised: rgba(255, 255, 255, 0.045);
+    --raised-2: rgba(255, 255, 255, 0.08);
+    --border: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --text: #e9ecf5;
+    --muted: #8b93a7;
+    --dim: #626b80;
+    --accent: #5b63ff;
+    --accent-2: #22d3ee;
+    --good: #34d399;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --radius: 16px;
+    --font: 'Segoe UI', Inter, system-ui, -apple-system, sans-serif;
+    --mono: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: transparent; overflow: hidden;
+    font-family: var(--font); color: var(--text); font-size: 14px;
+    user-select: none;
+  }
+
+  #shell {
+    display: flex; flex-direction: column; height: 100vh;
+    background: var(--bg);
+    backdrop-filter: blur(26px) saturate(140%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  }
+
+  /* ---------- header ---------- */
+
+  header {
+    -webkit-app-region: drag;
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 11px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0));
+    flex: 0 0 auto;
+  }
+
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 640; letter-spacing: 0.2px; }
+  .brand svg { display: block; border-radius: 6px; }
+  .brand small { color: var(--dim); font-weight: 400; letter-spacing: 0; }
+  .spacer { flex: 1; }
+  header .actions { -webkit-app-region: no-drag; display: flex; gap: 5px; align-items: center; }
+
+  select, input, textarea, button { font-family: inherit; font-size: inherit; color: inherit; }
+
+  .chip {
+    -webkit-app-region: no-drag;
+    background: var(--raised); border: 1px solid var(--border); color: var(--text);
+    border-radius: 999px; padding: 4px 11px; outline: none; cursor: pointer;
+    font-size: 12px; white-space: nowrap;
+    transition: background .15s, border-color .15s;
+  }
+  .chip:hover { background: var(--raised-2); }
+  .chip.on { background: rgba(91,99,255,0.22); border-color: rgba(91,99,255,0.55); color: #dfe2ff; }
+
+  /* A small, in-window status indicator — never an overlay over other apps. */
+  .chip.mode { display: inline-flex; align-items: center; gap: 6px; color: var(--dim); }
+  .chip.mode i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+  .chip.mode.active {
+    color: var(--warn); background: rgba(251,191,36,0.14); border-color: rgba(251,191,36,0.45);
+  }
+  .chip.mode.active i { animation: pulse 1.8s infinite ease-in-out; }
+
+  .icon-btn {
+    -webkit-app-region: no-drag;
+    width: 29px; height: 29px; display: grid; place-items: center;
+    border-radius: 9px; border: 1px solid transparent; background: transparent;
+    color: var(--muted); cursor: pointer; transition: background .15s, color .15s;
+  }
+  .icon-btn:hover { background: var(--raised-2); color: var(--text); }
+  .icon-btn.danger:hover { background: rgba(248,113,113,0.16); color: var(--bad); }
+
+  /* ---------- stage ---------- */
+
+  #stage {
+    flex: 1 1 auto; overflow-y: auto; padding: 16px;
+    display: flex; flex-direction: column; gap: 20px;
+    user-select: text; scroll-behavior: smooth;
+  }
+  #stage::-webkit-scrollbar { width: 9px; }
+  #stage::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.13); border-radius: 8px; }
+
+  .turn { display: flex; flex-direction: column; gap: 10px; }
+
+  .ask { align-self: flex-end; max-width: 84%; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+  .ask .who { font-size: 10.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .9px; }
+  .ask .bubble {
+    background: linear-gradient(135deg, rgba(91,99,255,0.26), rgba(34,211,238,0.16));
+    border: 1px solid rgba(91,99,255,0.34);
+    padding: 10px 13px; border-radius: 13px; line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+  .ask img { max-width: 200px; border-radius: 9px; border: 1px solid var(--border); display: block; margin-bottom: 7px; }
+
+  /* ---------- agent panes ---------- */
+
+  .panes { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  .panes.dual { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 720px) { .panes.dual { grid-template-columns: 1fr; } }
+
+  .pane {
+    background: var(--raised); border: 1px solid var(--border);
+    border-radius: 13px; overflow: hidden; display: flex; flex-direction: column;
+    min-width: 0;
+  }
+  .pane.full { grid-column: 1 / -1; }
+  .pane.synthesis { background: rgba(91,99,255,0.07); border-color: rgba(91,99,255,0.28); }
+  .pane.failed { border-color: rgba(248,113,113,0.35); background: rgba(248,113,113,0.07); }
+
+  .pane-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 11px; border-bottom: 1px solid var(--border);
+    font-size: 11.5px; color: var(--muted);
+  }
+  .pane-name { font-weight: 650; color: var(--text); letter-spacing: .2px; }
+  .pane-model { font-family: var(--mono); font-size: 10.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .pill {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10.5px; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); white-space: nowrap;
+  }
+  .pill i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .pill.working { color: var(--warn); border-color: rgba(251,191,36,.35); }
+  .pill.working i { animation: pulse 1.1s infinite ease-in-out; }
+  .pill.streaming { color: var(--accent-2); border-color: rgba(34,211,238,.35); }
+  .pill.streaming i { animation: pulse 1.1s infinite ease-in-out; }
+  .pill.done { color: var(--good); border-color: rgba(52,211,153,.35); }
+  .pill.error { color: var(--bad); border-color: rgba(248,113,113,.35); }
+  @keyframes pulse { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
+
+  .pane-body { padding: 11px 13px; line-height: 1.65; overflow-wrap: anywhere; min-height: 40px; }
+  .pane-body > :first-child { margin-top: 0; }
+  .pane-body > :last-child { margin-bottom: 0; }
+
+  .pane-body p { margin: 0 0 10px; }
+  .pane-body h1, .pane-body h2 { font-size: 1.02em; margin: 14px 0 7px; }
+  .pane-body h3 {
+    font-size: 11px; margin: 15px 0 7px; color: var(--accent-2);
+    text-transform: uppercase; letter-spacing: 1px; font-weight: 700;
+  }
+  .pane-body h3:first-child { margin-top: 2px; }
+  .pane-body ul, .pane-body ol { margin: 0 0 10px; padding-left: 19px; }
+  .pane-body li { margin: 3px 0; }
+  .pane-body code { font-family: var(--mono); background: rgba(255,255,255,0.09); padding: 1px 5px; border-radius: 5px; font-size: 0.9em; }
+  .pane-body a { color: var(--accent-2); }
+  .pane-body strong { color: #fff; }
+
+  .code-block { position: relative; margin: 8px 0; }
+  .code-block pre {
+    margin: 0; padding: 12px 13px; background: rgba(0,0,0,0.42);
+    border: 1px solid var(--border); border-radius: 9px; overflow-x: auto;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+  }
+  .code-block .copy {
+    position: absolute; top: 6px; right: 6px;
+    background: var(--raised-2); border: 1px solid var(--border);
+    color: var(--muted); border-radius: 6px; padding: 3px 8px;
+    font-size: 10.5px; cursor: pointer; opacity: 0; transition: opacity .15s;
+  }
+  .code-block:hover .copy { opacity: 1; }
+  .code-block .copy:hover { color: var(--text); }
+
+  .typing { display: inline-flex; gap: 4px; align-items: center; height: 18px; }
+  .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); animation: blink 1.2s infinite ease-in-out; }
+  .typing i:nth-child(2) { animation-delay: .18s; }
+  .typing i:nth-child(3) { animation-delay: .36s; }
+  @keyframes blink { 0%,80%,100% { opacity: .25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+
+  /* ---------- follow-ups ---------- */
+
+  .followups { display: flex; flex-wrap: wrap; gap: 6px; }
+  .followups .label { font-size: 10.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .9px; width: 100%; }
+  .suggestion {
+    background: var(--raised-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 999px; padding: 5px 12px; font-size: 12px; cursor: pointer;
+    text-align: left; transition: background .15s, border-color .15s;
+  }
+  .suggestion:hover { background: rgba(91,99,255,0.22); border-color: rgba(91,99,255,0.5); }
+
+  /* ---------- empty state ---------- */
+
+  .empty { margin: auto; text-align: center; color: var(--muted); max-width: 460px; display: flex; flex-direction: column; gap: 12px; }
+  .empty h2 { margin: 0; color: var(--text); font-size: 18px; font-weight: 650; }
+  .empty .lede { font-size: 13px; line-height: 1.6; }
+  .empty .grid { display: grid; grid-template-columns: 1fr auto; gap: 6px 14px; font-size: 12.5px; margin-top: 4px; }
+  kbd {
+    font-family: var(--mono); font-size: 11px;
+    background: var(--raised-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 2px 6px; color: var(--text);
+  }
+  .starters { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+
+  /* ---------- screenshot tray ---------- */
+
+  #shotbar { display: none; padding: 10px 12px 0; flex: 0 0 auto; }
+  #shotbar.show { display: block; }
+  .shot-card {
+    display: flex; gap: 11px; align-items: center;
+    background: var(--raised); border: 1px solid var(--border-strong);
+    border-radius: 12px; padding: 9px;
+  }
+  .shot-card img { width: 104px; height: 62px; object-fit: cover; border-radius: 7px; border: 1px solid var(--border); flex: 0 0 auto; }
+  .shot-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .shot-meta b { font-size: 12.5px; font-weight: 620; }
+  .shot-meta span { font-size: 11.5px; color: var(--dim); }
+  .shot-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+
+  /* ---------- composer ---------- */
+
+  footer { flex: 0 0 auto; padding: 10px 12px 12px; }
+
+  #status {
+    min-height: 17px; font-size: 11.5px; color: var(--muted);
+    margin-bottom: 7px; display: flex; align-items: center; gap: 9px;
+  }
+  #status.recording { color: var(--good); }
+  #status.error { color: var(--bad); }
+  #level { flex: 0 0 58px; height: 4px; border-radius: 4px; background: rgba(255,255,255,0.10); overflow: hidden; display: none; }
+  #level > span { display: block; height: 100%; width: 0%; background: var(--good); transition: width .08s linear; }
+
+  .meter { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.10); overflow: hidden; }
+  .meter > span { display: block; height: 100%; width: 0%; background: var(--good); transition: width .06s linear; }
+
+  .composer {
+    display: flex; align-items: flex-end; gap: 7px;
+    background: var(--raised); border: 1px solid var(--border);
+    border-radius: 14px; padding: 7px;
+  }
+  .composer:focus-within { border-color: rgba(91,99,255,0.55); }
+
+  #input {
+    flex: 1; background: transparent; border: none; outline: none; resize: none;
+    max-height: 150px; min-height: 24px; line-height: 1.5; padding: 4px; user-select: text;
+  }
+  #input::placeholder { color: var(--dim); }
+
+  .round {
+    width: 33px; height: 33px; flex: 0 0 33px; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--raised-2); color: var(--text);
+    display: grid; place-items: center; cursor: pointer;
+    transition: background .15s, transform .1s, box-shadow .15s;
+  }
+  .round:hover { background: rgba(255,255,255,0.14); }
+  .round:active { transform: scale(0.94); }
+  .round.send { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: #0b0d16; }
+  .round.rec { background: var(--good); border-color: transparent; color: #06281c; box-shadow: 0 0 0 6px rgba(52,211,153,0.18); }
+  .round.stop { background: var(--bad); border-color: transparent; color: #2a0a0a; }
+  .round:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* ---------- overlays ---------- */
+
+  .sheet {
+    position: absolute; inset: 0; background: rgba(9, 11, 18, 0.95);
+    backdrop-filter: blur(10px); display: none; flex-direction: column;
+    border-radius: var(--radius); z-index: 50;
+  }
+  .sheet.open { display: flex; }
+  .sheet header { -webkit-app-region: no-drag; }
+  .sheet-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+  .sheet-body::-webkit-scrollbar { width: 9px; }
+  .sheet-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.13); border-radius: 8px; }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field > label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .9px; font-weight: 600; }
+  .field .help { font-size: 11.5px; color: var(--muted); line-height: 1.55; }
+  .field input[type=text], .field input[type=password], .field textarea, .field select {
+    background: var(--raised); border: 1px solid var(--border);
+    border-radius: 9px; padding: 8px 10px; outline: none; user-select: text; width: 100%;
+  }
+  .field input:focus, .field textarea:focus, .field select:focus { border-color: rgba(91,99,255,0.55); }
+  #pm-shortcut { font-family: var(--mono); font-size: 12.5px; }
+  #pm-shortcut.recording { border-color: rgba(251,191,36,0.7); color: var(--warn); }
+  .field textarea { resize: vertical; min-height: 74px; line-height: 1.55; }
+  .field select option { background: var(--bg-solid); }
+
+  .card { border: 1px solid var(--border); border-radius: 12px; padding: 13px; display: flex; flex-direction: column; gap: 11px; background: rgba(255,255,255,0.02); }
+  .card > h4 { margin: 0; font-size: 12.5px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+
+  .row2 { display: flex; gap: 10px; }
+  .row2 > * { flex: 1; min-width: 0; }
+
+  .inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .btn {
+    background: var(--raised-2); border: 1px solid var(--border);
+    border-radius: 9px; padding: 7px 13px; cursor: pointer; white-space: nowrap; font-size: 12.5px;
+  }
+  .btn:hover { background: rgba(255,255,255,0.14); }
+  .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #0b0d16; border-color: transparent; font-weight: 620; }
+  .btn.ghost { background: transparent; }
+  .btn.tiny { padding: 4px 9px; font-size: 11.5px; }
+
+  .badge { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .badge.ok { color: var(--good); border-color: rgba(52,211,153,.4); background: rgba(52,211,153,.10); }
+  .badge.no { color: var(--bad); border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.10); }
+
+  .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .switch span { font-size: 13px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; }
+
+  .hotkeys { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; font-size: 12.5px; color: var(--muted); }
+  .link { color: var(--accent-2); cursor: pointer; text-decoration: underline; }
+
+  /* ---------- display picker ---------- */
+
+  #picker { z-index: 60; }
+  #picker .sheet-body { align-items: center; justify-content: center; }
+  .picker-inner { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 14px; }
+  .picker-inner > h2 { margin: 0; font-size: 17px; text-align: center; }
+  .picker-inner > p { margin: 0; text-align: center; font-size: 12.5px; color: var(--muted); }
+  .display-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 11px; }
+  .display-card {
+    background: var(--raised); border: 1px solid var(--border); border-radius: 12px;
+    padding: 9px; cursor: pointer; display: flex; flex-direction: column; gap: 8px;
+    text-align: left; transition: border-color .15s, background .15s, transform .1s;
+  }
+  .display-card:hover { border-color: rgba(91,99,255,0.6); background: rgba(91,99,255,0.10); }
+  .display-card:active { transform: scale(0.985); }
+  .display-card .thumb {
+    width: 100%; aspect-ratio: 16 / 10; border-radius: 8px; border: 1px solid var(--border);
+    background: rgba(0,0,0,0.4) center/cover no-repeat;
+    display: grid; place-items: center; color: var(--dim); font-size: 22px; font-weight: 700;
+  }
+  .display-card b { font-size: 13px; }
+  .display-card span { font-size: 11.5px; color: var(--dim); }
+  .display-card .last { color: var(--accent-2); font-size: 11px; }
+
+  /* ---------- click-through + safe mode ---------- */
+
+  #clickthrough-banner {
+    display: none; position: absolute; bottom: 12px; left: 50%;
+    transform: translateX(-50%); z-index: 65;
+    background: rgba(91,99,255,0.92); color: #0b0d16;
+    padding: 6px 14px; border-radius: 999px; font-size: 12px; font-weight: 620;
+    box-shadow: 0 6px 20px rgba(0,0,0,.4);
+  }
+  #clickthrough-banner.show { display: block; }
+
+  /* An opaque cover over everything, settings sheet included — that panel holds
+     the profile and the key hints, so a partial cover would be no cover at all.
+     Solid colour, no transparency and no backdrop blur: nothing to read through. */
+  #safe-mode-screen {
+    -webkit-app-region: drag;
+    display: none; position: absolute; inset: 0; z-index: 70;
+    background: var(--bg-solid); border-radius: var(--radius);
+    place-items: center; padding: 26px; text-align: center;
+  }
+  body.safe-mode #safe-mode-screen { display: grid; }
+  .sm-card { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 400px; }
+  .sm-card h2 { margin: 0; font-size: 17px; font-weight: 650; }
+  .sm-card p { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+  .sm-card .btn { -webkit-app-region: no-drag; }
+  .sm-badge {
+    -webkit-app-region: no-drag; font-size: 12px; font-weight: 620;
+    color: var(--good); background: rgba(52,211,153,.10);
+    border: 1px solid rgba(52,211,153,.4); border-radius: 999px; padding: 5px 13px;
+  }
+</style>
+</head>
+<body>
+<div id="shell">
+
+  <header>
+    <div class="brand">
+      <svg width="19" height="19" viewBox="0 0 100 100" aria-hidden="true">
+        <defs>
+          <linearGradient id="nx" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#5b63ff"/><stop offset="1" stop-color="#22d3ee"/>
+          </linearGradient>
+        </defs>
+        <rect x="3.5" y="3.5" width="93" height="93" rx="22.5" fill="url(#nx)"/>
+        <g stroke="#fff" stroke-width="10.2" stroke-linecap="round" fill="none">
+          <path d="M31.5 74.2 V25.8 L68.5 74.2 V25.8"/>
+        </g>
+        <g fill="#fff">
+          <circle cx="31.5" cy="25.8" r="7.4"/><circle cx="68.5" cy="25.8" r="7.4"/>
+          <circle cx="31.5" cy="74.2" r="7.4"/><circle cx="68.5" cy="74.2" r="7.4"/>
+        </g>
+      </svg>
+      Nexora <small id="key-badge"></small>
+    </div>
+    <div class="spacer"></div>
+    <div class="actions">
+      <button class="chip mode" id="btn-presentation" title="Presentation Mode"><i></i><span>Presentation: off</span></button>
+      <button class="chip" id="btn-agents" title="Toggle two-agent mode">1 agent</button>
+      <button class="icon-btn" id="btn-export" title="Export conversation to Markdown" aria-label="Export">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-clear" title="New conversation" aria-label="New conversation">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-settings" title="Settings" aria-label="Settings">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.63.68 1.09 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-minimize" title="Minimize" aria-label="Minimize">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <button class="icon-btn danger" id="btn-hide" title="Hide to tray (Ctrl+Shift+Space)" aria-label="Hide">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div id="stage"></div>
+
+  <div id="shotbar">
+    <div class="shot-card">
+      <img id="shot-thumb" alt="Captured screenshot">
+      <div class="shot-meta">
+        <b>Screenshot ready</b>
+        <span id="shot-detail"></span>
+      </div>
+      <div class="shot-actions">
+        <button class="btn tiny" id="btn-recapture" type="button">Recapture</button>
+        <button class="btn tiny ghost" id="btn-discard-shot" type="button">Discard</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div id="status"><span id="status-text">Ready.</span><div id="level"><span></span></div></div>
+    <div class="composer">
+      <button class="round" id="btn-shot" title="Capture a screenshot (Ctrl+Shift+S)" aria-label="Screenshot">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      </button>
+      <button class="round" id="btn-mic" title="Push to talk (Ctrl+Shift+A)" aria-label="Microphone">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 1 0 2 0v-2.08A7 7 0 0 0 19 12z"/></svg>
+      </button>
+      <textarea id="input" rows="1" placeholder="Ask anything, or capture a screenshot of the problem…"></textarea>
+      <button class="round send" id="btn-send" title="Send" aria-label="Send">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+  </footer>
+
+  <div id="clickthrough-banner">Click-through ON — press Ctrl+Shift+X to turn it off</div>
+
+  <!-- ---------------- display picker ---------------- -->
+  <div id="picker" class="sheet">
+    <header>
+      <div class="brand">Which display should I capture?</div>
+      <div class="spacer"></div>
+      <div class="actions">
+        <button class="icon-btn" id="btn-close-picker" title="Cancel" aria-label="Cancel">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </button>
+      </div>
+    </header>
+    <div class="sheet-body">
+      <div class="picker-inner">
+        <p id="picker-note">Nexora hides itself while it captures, so it won't appear in the shot.</p>
+        <div class="display-grid" id="display-grid"></div>
+        <label class="switch">
+          <span style="font-size:12.5px;color:var(--muted)">Remember this display and stop asking</span>
+          <input type="checkbox" id="picker-remember">
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---------------- settings ---------------- -->
+  <div id="settings" class="sheet">
+    <header>
+      <div class="brand">Settings</div>
+      <div class="spacer"></div>
+      <div class="actions">
+        <button class="icon-btn" id="btn-close-settings" title="Close" aria-label="Close settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="sheet-body">
+
+      <div class="field">
+        <label>API keys</label>
+        <div id="key-cards" class="field" style="gap:10px"></div>
+        <div class="help">
+          Keys are encrypted with your OS keystore (Windows DPAPI / macOS Keychain / libsecret)
+          and stored in the app's data folder — never in the project directory, so they can't be
+          committed by accident. An environment variable overrides the stored key.
+        </div>
+      </div>
+
+      <div class="card">
+        <h4>Agent 1 <span class="badge">primary</span></h4>
+        <div class="row2">
+          <div class="field"><label for="a1-provider">Provider</label><select id="a1-provider"></select></div>
+          <div class="field"><label for="a1-model">Model</label><select id="a1-model"></select></div>
+        </div>
+        <div class="field">
+          <label for="a1-temp">Temperature — <span id="a1-temp-val">1.0</span></label>
+          <input type="range" id="a1-temp" min="0" max="2" step="0.1">
+          <div class="help" id="a1-temp-note"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="switch">
+          <span><b>Two-agent mode</b> — solve and independently review in parallel</span>
+          <input type="checkbox" id="set-two-agents">
+        </div>
+        <div class="help">
+          Agent 2 answers the same question from scratch, then reviews Agent 1's answer for
+          mistakes. Both run at the same time, so the first answer is no slower than usual.
+          Pointing the two agents at different providers gives the most useful second opinion.
+        </div>
+      </div>
+
+      <div class="card" id="agent2-card">
+        <h4>Agent 2 <span class="badge">reviewer</span></h4>
+        <div class="row2">
+          <div class="field"><label for="a2-provider">Provider</label><select id="a2-provider"></select></div>
+          <div class="field"><label for="a2-model">Model</label><select id="a2-model"></select></div>
+        </div>
+        <div class="field">
+          <label for="a2-temp">Temperature — <span id="a2-temp-val">1.0</span></label>
+          <input type="range" id="a2-temp" min="0" max="2" step="0.1">
+        </div>
+        <div class="switch">
+          <span>Show the combined insight pane</span>
+          <input type="checkbox" id="set-synthesis">
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="switch">
+          <span>Suggest follow-up questions after each answer</span>
+          <input type="checkbox" id="set-suggestions">
+        </div>
+        <div class="switch">
+          <span>Always ask which display to capture</span>
+          <input type="checkbox" id="set-ask-display">
+        </div>
+        <div class="help" id="display-note"></div>
+      </div>
+
+      <div class="card">
+        <h4>Voice input <span class="badge" id="mic-badge">push to talk · Ctrl+Shift+A</span></h4>
+
+        <div class="field">
+          <label for="set-mic-device">Microphone</label>
+          <select id="set-mic-device"></select>
+        </div>
+
+        <div class="row2">
+          <div class="field">
+            <label for="set-transcribe-provider">Voice provider</label>
+            <select id="set-transcribe-provider"></select>
+          </div>
+          <div class="field">
+            <label for="set-transcribe">Transcription model</label>
+            <select id="set-transcribe"></select>
+          </div>
+        </div>
+
+        <div class="inline">
+          <button class="btn tiny" id="btn-mic-test" type="button">Test microphone</button>
+          <span class="badge" id="mic-test-result">not tested</span>
+        </div>
+        <div class="meter" id="mic-test-meter"><span></span></div>
+
+        <div class="help">
+          Recording runs on the audio thread, so a busy window cannot punch holes in it.
+          Before upload, each clip has its DC offset removed, is trimmed to the speech,
+          resampled to 16 kHz through an anti-aliasing filter and normalised — a quiet
+          microphone is the most common reason a transcript comes back empty. If a model
+          returns nothing on a clip that does contain speech, Nexora retries once with a
+          stronger model rather than sending you a placeholder.
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Your profile — résumé &amp; projects</label>
+        <div class="switch">
+          <span>Send my profile as reference with every message</span>
+          <input type="checkbox" id="prof-enabled">
+        </div>
+        <div class="help">
+          Stored locally in the app's data folder. Sent with each request as clearly fenced
+          reference material, so answers — especially behavioural ones — draw on your real
+          experience instead of generic filler. <span id="prof-size"></span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="prof-resume">Résumé</label>
+        <textarea id="prof-resume" spellcheck="false" placeholder="Paste your résumé as plain text. From a PDF or Word file: open it, select all, copy, paste here."></textarea>
+        <div class="inline">
+          <button class="btn tiny" id="prof-import-resume" type="button">Import from .txt / .md…</button>
+          <span class="badge" id="prof-resume-count"></span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="prof-projects">Projects</label>
+        <textarea id="prof-projects" spellcheck="false" placeholder="One block per project: what it does, your role, the stack, the hard part, the outcome. Numbers help — users, latency, scale."></textarea>
+        <div class="inline">
+          <button class="btn tiny" id="prof-import-projects" type="button">Import from .txt / .md…</button>
+          <span class="badge" id="prof-projects-count"></span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="prof-notes">Other notes</label>
+        <textarea id="prof-notes" spellcheck="false" placeholder="Target roles, preferred tone, things to leave out, certifications, publications."></textarea>
+        <div class="inline"><span class="badge" id="prof-notes-count"></span></div>
+      </div>
+
+      <div class="field">
+        <label for="set-persona">Persona</label>
+        <textarea id="set-persona" spellcheck="false"></textarea>
+        <div class="help">
+          Prepended to every request. The answer formats — Answer / Explanation / Code /
+          Complexity / Interview explanation — are applied on top of this automatically and
+          adapt to the kind of question, so you don't need to describe them here.
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="set-history">Conversation memory — last <span id="hist-val">20</span> messages</label>
+        <input type="range" id="set-history" min="2" max="60" step="2">
+        <div class="help">Only the most recent screenshot is resent with follow-ups — older captures are dropped to keep replies fast.</div>
+      </div>
+
+      <div class="field">
+        <label for="set-opacity">Window opacity — <span id="op-val">100%</span></label>
+        <input type="range" id="set-opacity" min="0.4" max="1" step="0.05">
+      </div>
+
+      <div class="field">
+        <div class="switch"><span>Always on top</span><input type="checkbox" id="set-ontop"></div>
+        <div class="switch"><span>Start hidden in the tray</span><input type="checkbox" id="set-hidden"></div>
+      </div>
+
+      <div class="card">
+        <h4>Presentation Mode <span class="badge" id="pm-state">off</span></h4>
+        <div class="switch">
+          <span>Hide Nexora and take it off the taskbar while I present</span>
+          <input type="checkbox" id="set-presentation">
+        </div>
+        <div class="help">
+          For your own presentation workflow. Turning it on hides the window and removes it
+          from the taskbar and alt-tab; turning it off puts it back at exactly the position
+          and size it had. Nexora keeps running the whole time — your conversation, your
+          screenshot and everything else are still there, and the tray icon still works.
+          Push-to-talk and screenshot keep working too, and while the mode is on they no
+          longer pull the window forward, so a capture is simply waiting for you when you
+          come back.
+          It is a local switch and nothing more: it does not touch Teams, Zoom, Meet, Slack
+          or your browser, and it makes no attempt to change what screen-capture software
+          can record.
+        </div>
+
+        <div class="field">
+          <label for="pm-shortcut">Global shortcut</label>
+          <div class="inline">
+            <input type="text" id="pm-shortcut" readonly spellcheck="false" style="flex:1;min-width:150px">
+            <button class="btn tiny" id="pm-record" type="button">Change</button>
+            <button class="btn tiny ghost" id="pm-reset" type="button">Reset</button>
+          </div>
+          <div class="help" id="pm-shortcut-note">
+            Toggles Presentation Mode on and off. It is deliberately separate from the
+            screenshot shortcut.
+          </div>
+        </div>
+
+        <div class="switch">
+          <span>Automatically enter when I start presenting</span>
+          <input type="checkbox" id="set-presentation-auto">
+        </div>
+        <div class="help" id="pm-auto-note"></div>
+      </div>
+
+      <div class="field">
+        <label>Screen Share Safe Mode</label>
+        <div class="switch">
+          <span>Hide Nexora and cover the conversation</span>
+          <input type="checkbox" id="set-safe-mode">
+        </div>
+        <div class="help">
+          For presentations and calls. Turning it on hides this window and covers the
+          conversation with an opaque screen, so nothing private is on display. Messages are
+          kept, not deleted, and the setting is remembered between launches. The tray menu
+          shows the current state at a glance.
+          This is the companion to Presentation Mode above: that one moves the window out of
+          your way, this one covers what is in it. They work independently, and together.
+          It is a local switch and nothing more: it does not touch Teams, Zoom, Meet, Slack or
+          your browser, and it makes no attempt to change what screen-capture software can
+          record. If the window is on screen, it can be captured — Safe Mode's job is to keep
+          it off screen.
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Global hotkeys</label>
+        <div class="hotkeys">
+          <span>Presentation Mode</span><kbd id="hk-presentation">Ctrl+Shift+Space</kbd>
+          <span>Push to talk</span><kbd>Ctrl+Shift+A</kbd>
+          <span>Capture a screenshot</span><kbd>Ctrl+Shift+S</kbd>
+          <span>Click-through mode</span><kbd>Ctrl+Shift+X</kbd>
+        </div>
+        <div class="help">
+          Click-through lets your mouse pass straight through to whatever is behind. The hotkey
+          is the only way back, since clicks no longer reach the window.
+        </div>
+      </div>
+
+      <div class="field">
+        <label>About</label>
+        <div class="help">
+          Nexora runs entirely on your machine. Audio, screenshots and text go directly from
+          this app to the provider you configured, using your own key — there is no
+          intermediate server. The window is deliberately visible in the taskbar and in screen
+          shares; Safe Mode above is the honest way to hide it.
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="safe-mode-screen" role="status" aria-live="polite">
+    <div class="sm-card">
+      <div class="sm-badge">● Screen Share Safe Mode is ON</div>
+      <h2>Conversation hidden</h2>
+      <p>
+        Nothing was deleted — your messages are still here and stay covered until you turn Safe
+        Mode off. The tray icon still opens and hides this window.
+      </p>
+      <button class="btn primary" id="btn-safe-off" type="button">Turn off Safe Mode</button>
+      <p>
+        This only affects Nexora. It changes nothing about Teams, Zoom, Meet, Slack, your
+        browser, or what screen-capture software records.
+      </p>
+    </div>
+  </div>
+
+</div>
+<script src="audio-dsp.js"></script>
+<script src="renderer.js"></script>
+</body>
+</html>
