@@ -20,9 +20,10 @@ jobs:
       - name: Run tests
         run: npm test
       - name: Build Windows installer
-        run: npm run build:win
+        run: npm run build:win -- --publish never
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: nexora-windows-installer
           path: dist/*.exe
+          if-no-files-found: error
