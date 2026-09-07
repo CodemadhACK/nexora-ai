@@ -29,6 +29,11 @@ const FORMATS = {
   coding: `
 CODING / DSA / algorithms — use these headings, in this order:
 
+### Interview explanation
+Exactly how to say this out loud, in the order an interviewer wants to hear it:
+clarifying questions to ask first, the brute force, the insight, the optimised approach,
+then complexity. Write it as speech, not as notes.
+
 ### Answer
 The direct solution in two or three sentences. Name the approach and the key insight.
 
@@ -53,17 +58,15 @@ invariant the loop maintains, if there is one.
 The inputs that break naive solutions: empty, single element, duplicates, overflow,
 negative numbers, cycles. Give three or four concrete test cases with expected outputs.
 
-### Interview explanation
-Exactly how to say this out loud, in the order an interviewer wants to hear it:
-clarifying questions to ask first, the brute force, the insight, the optimised approach,
-then complexity. Write it as speech, not as notes.
-
 ### Interviewer follow-ups
 Three or four questions they are likely to ask next, each with a one-line answer.
 `.trim(),
 
   'system-design': `
 SYSTEM DESIGN — use these headings, in this order:
+
+### Interview explanation
+How to present this out loud in five minutes, and the order to reveal it in.
 
 ### Answer
 The architecture in three or four sentences: the shape of the system and the one or two
@@ -96,15 +99,15 @@ Failure modes, redundancy, consistency model, backpressure, idempotency, recover
 ### Trade-offs and bottlenecks
 The honest costs of your choices, and the alternative you rejected and why.
 
-### Interview explanation
-How to present this out loud in five minutes, and the order to reveal it in.
-
 ### Interviewer follow-ups
 Three or four likely deep-dives, each with a one-line answer.
 `.trim(),
 
   conceptual: `
 CONCEPTUAL — do NOT use the coding headings. Use these:
+
+### Interview explanation
+A crisp 30-second spoken version — what a strong candidate says when asked this cold.
 
 ### Answer
 The direct answer in two or three sentences. Lead with the thing that is actually true;
@@ -117,15 +120,16 @@ concrete example over an abstract restatement.
 ### In practice
 Where this shows up in real systems, and the mistake people make with it.
 
-### Interview explanation
-A crisp 30-second spoken version — what a strong candidate says when asked this cold.
-
 ### Related follow-ups
 Three or four adjacent questions an interviewer moves on to, each with a one-line answer.
 `.trim(),
 
   debugging: `
 DEBUGGING — an error, stack trace, failing test or broken output. Use these headings:
+
+### Interview explanation
+How to say it out loud: the cause, then the fix, then what stops it coming back. Lead with
+the cause — not the symptom, and not a reading of the stack trace.
 
 ### Answer
 What is wrong, in one or two sentences. Name the actual cause, not the symptom.
@@ -147,6 +151,10 @@ the alert, the config change.
   behavioural: `
 BEHAVIOURAL — use STAR, but keep it tight:
 
+### Saying it well
+The delivery notes: what to emphasise, what to cut, how long to speak for, and the trap
+in this question.
+
 ### Answer
 The one-sentence version of the story to lead with.
 
@@ -155,10 +163,6 @@ The one-sentence version of the story to lead with.
 - **Task:** what you specifically owned
 - **Action:** what you did, in first person, with the decisions you made
 - **Result:** the outcome, with a number if one exists
-
-### Saying it well
-The delivery notes: what to emphasise, what to cut, how long to speak for, and the trap
-in this question.
 
 ### Likely follow-ups
 Three questions they ask after this answer, each with a one-line steer.
@@ -185,6 +189,9 @@ Style rules:
 - Bold only the terms that carry weight. Never bold a whole sentence.
 - If the question is ambiguous, answer the most likely reading and note the assumption in
   one line — do not stop to ask unless answering is genuinely impossible.
+- The first section is the one the user reads out loud, often on a live call, so it leads and
+  has to stand on its own. Work the problem out before you write it: everything below must
+  agree with it, and it is already spoken by the time the rest arrives.
 `.trim();
 
 const REVIEWER_ROLE = `

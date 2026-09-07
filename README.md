@@ -64,14 +64,15 @@ Kubernetes question doesn't get forced through a LeetCode template.
 
 | Kind | Sections |
 |---|---|
-| **Coding / DSA** | Answer · Explanation · Code · How it works · Complexity · Edge cases and tests · Interview explanation · Interviewer follow-ups |
-| **System design** | Answer · Requirements · Assumptions · Architecture · Components · Data model and flow · Scaling · Reliability · Trade-offs · Interview explanation · Follow-ups |
-| **Conceptual** | Answer · Explanation · In practice · Interview explanation · Related follow-ups |
-| **Debugging** | Answer · Why this happens · Fix · How to verify · In production |
-| **Behavioural** | Answer · STAR · Saying it well · Likely follow-ups |
+| **Coding / DSA** | **Interview explanation** · Answer · Explanation · Code · How it works · Complexity · Edge cases and tests · Interviewer follow-ups |
+| **System design** | **Interview explanation** · Answer · Requirements · Assumptions · Architecture · Components · Data model and flow · Scaling · Reliability · Trade-offs · Follow-ups |
+| **Conceptual** | **Interview explanation** · Answer · Explanation · In practice · Related follow-ups |
+| **Debugging** | **Interview explanation** · Answer · Why this happens · Fix · How to verify · In production |
+| **Behavioural** | **Saying it well** · Answer · STAR · Likely follow-ups |
 
-Every format ends with material you can actually use in the room: the spoken version of
-the answer, and the questions an interviewer asks next.
+Every format *opens* with the part you say out loud, because you are usually reading it
+mid-call with someone waiting. It streams first, so it is on screen before the code is.
+Everything under it is reference you scroll to afterwards.
 
 ### Follow-up suggestions
 

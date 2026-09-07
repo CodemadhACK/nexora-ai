@@ -180,3 +180,27 @@ test('objects with a text field are accepted, since models drift to that shape',
   const items = prompts.parseSuggestions('[{"text":"Explain the invariant"},{"text":"Show a test case"}]');
   assert.deepEqual(items, ['Explain the invariant', 'Show a test case']);
 });
+
+/**
+ * The user is often reading this mid-call, so the part they say out loud leads.
+ * Anything below it is reference they scroll to afterwards — an answer that puts
+ * the spoken version under a code block is one they have to hunt for while an
+ * interviewer waits.
+ */
+test('every format leads with the section that gets read out loud', () => {
+  const spoken = {
+    coding: '### Interview explanation',
+    'system-design': '### Interview explanation',
+    conceptual: '### Interview explanation',
+    debugging: '### Interview explanation',
+    behavioural: '### Saying it well'
+  };
+
+  assert.deepEqual(Object.keys(spoken).sort(), Object.keys(prompts.FORMATS).sort(),
+    'every kind needs something to say out loud, including any newly added one');
+
+  for (const [kind, heading] of Object.entries(spoken)) {
+    const headings = prompts.FORMATS[kind].split('\n').filter((line) => line.startsWith('### '));
+    assert.equal(headings[0], heading, `${kind} should open with ${heading}, not ${headings[0]}`);
+  }
+});
