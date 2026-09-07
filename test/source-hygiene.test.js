@@ -171,3 +171,59 @@ test('the page keeps a strict content security policy', () => {
   assert.match(csp[1], /script-src 'self'/, 'no remote or inline scripts');
   assert.match(csp[1], /img-src 'self' data:/, 'screenshots arrive as data URIs');
 });
+
+/** Slices one top-level function body out of a source file, by signature. */
+function functionBody(text, signature) {
+  const start = text.indexOf(signature);
+  assert.notEqual(start, -1, `${signature} is no longer in the file`);
+  const end = text.indexOf('\n}', start);
+  assert.notEqual(end, -1, `could not find the end of ${signature}`);
+  return text.slice(start, end);
+}
+
+/**
+ * The microphone and the screenshot are independent. Capturing mid-sentence is
+ * the normal way to ask "what is this?" out loud, so the recording has to
+ * outlive the capture — it ends when the user ends it, and not before.
+ */
+test('capturing a screenshot never ends a live recording', () => {
+  const renderer = fs.readFileSync(path.join(ROOT, 'renderer.js'), 'utf8');
+  const capture = functionBody(renderer, 'async function captureDisplay(');
+
+  for (const ender of ['stopRecording(', 'teardownAudio(', 'discardRecording(']) {
+    assert.equal(capture.includes(ender), false,
+      `captureDisplay must not call ${ender} — a recording stops when the user says so`);
+  }
+});
+
+test('a recording is put back if the window hid long enough to suspend the audio context', () => {
+  const renderer = fs.readFileSync(path.join(ROOT, 'renderer.js'), 'utf8');
+  const capture = functionBody(renderer, 'async function captureDisplay(');
+
+  // Both ways out are checked separately: one surviving call would otherwise
+  // stand in for the other, and the path that matters most is the one where
+  // the screenshot actually arrived.
+  const failed = capture.slice(capture.indexOf('if (!shot.ok)'), capture.indexOf('return null;'));
+  const arrived = capture.slice(capture.indexOf('showShot(shot);'));
+
+  assert.match(arrived, /resumeMic\(\)/,
+    'captureDisplay should revive the microphone once the window comes back');
+  assert.match(failed, /resumeMic\(\)/,
+    'a capture that failed must not cost the user their recording either');
+
+  const resume = functionBody(renderer, 'async function resumeMic(');
+  assert.match(resume, /audioCtx\.state === 'suspended'/);
+  assert.match(resume, /audioCtx\.resume\(\)/);
+});
+
+/**
+ * A hidden window is a backgrounded renderer, and Chromium throttles those.
+ * That drops samples on the ScriptProcessor fallback, whose callback runs on the
+ * main thread — and the window hides for every capture and every trip to the
+ * tray. Throttling has to stay off for a recording to survive either one.
+ */
+test('the renderer is not background-throttled, so a hidden window keeps recording', () => {
+  const main = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+  assert.match(main, /backgroundThrottling:\s*false/,
+    'a throttled renderer loses microphone samples while the window is hidden');
+});

@@ -508,18 +508,44 @@ function showShot(shot) {
     shot.mimeType === 'image/jpeg' ? 'JPEG' : 'PNG'
   ].filter(Boolean).join(' · ');
   shotbar.classList.add('show');
-  input.placeholder = 'Ask about this screenshot… (Enter sends it)';
-  input.focus();
+
+  // While the mic is live this screenshot is not waiting on the composer — it
+  // rides along with whatever is being said — so do not ask for an Enter that
+  // would cut the recording short, and do not pull focus out from under it.
+  if (recording) {
+    input.placeholder = 'Still listening… this screenshot goes with what you say.';
+  } else {
+    input.placeholder = 'Ask about this screenshot… (Enter sends it)';
+    input.focus();
+  }
 }
 
+/**
+ * A capture never interrupts the microphone. The window steps aside for a moment
+ * to stay out of shot, which backgrounds this renderer, but the recording keeps
+ * running and only the user ends it — the shot simply waits in the composer and
+ * goes up with whatever the recording turns into.
+ */
 async function captureDisplay(displayId) {
-  setStatus('Capturing…');
+  const listening = recording;
+  setStatus(listening ? 'Capturing… still listening.' : 'Capturing…');
+
   const shot = await api.displays.capture(displayId ?? null);
-  if (!shot.ok) { setStatus(shot.error, 'error'); return null; }
+  if (!shot.ok) {
+    setStatus(shot.error, 'error');
+    await resumeMic();               // a failed capture must not cost the recording either
+    return null;
+  }
 
   shot.dataUrl = `data:${shot.mimeType};base64,${shot.dataBase64}`;
   showShot(shot);
-  setStatus('Screenshot ready — ask about it, or press Enter.');
+
+  if (listening) {
+    await resumeMic();
+    setStatus(listeningStatus(), 'recording');
+  } else {
+    setStatus('Screenshot ready — ask about it, or press Enter.');
+  }
   return shot;
 }
 
@@ -672,6 +698,29 @@ async function attachCapture() {
   sinkNode.connect(audioCtx.destination);
 }
 
+/** What the status bar says while the mic is live, with or without a shot waiting. */
+function listeningStatus() {
+  return pendingShot
+    ? 'Listening… the screenshot goes with what you say. Click the mic or press Ctrl+Shift+A to stop.'
+    : 'Listening… click the mic or press Ctrl+Shift+A to stop.';
+}
+
+/**
+ * Hiding the window for a capture backgrounds the renderer, and a backgrounded
+ * renderer is allowed to suspend its AudioContext. Nothing else in the app
+ * interrupts a recording, so this is the one place that has to put it back —
+ * silently when it worked, loudly when it did not, because a mic that has
+ * quietly stopped listening is the worst version of this bug.
+ */
+async function resumeMic() {
+  if (!recording || !audioCtx) return;
+  try {
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+  } catch (err) {
+    setStatus(`The microphone stopped during the capture: ${err.message}`, 'error');
+  }
+}
+
 async function startRecording() {
   if (recording || busy) return;
   try {
@@ -702,7 +751,7 @@ async function startRecording() {
   recording = true;
   btnMic.classList.add('rec');
   levelBar.style.display = 'block';
-  setStatus('Listening… click the mic or press Ctrl+Shift+A to stop.', 'recording');
+  setStatus(listeningStatus(), 'recording');
 }
 
 /** Tears the audio graph down and returns everything captured, at the device rate. */
@@ -796,6 +845,9 @@ async function stopRecording() {
     return;
   }
 
+  // ask() attaches whatever is sitting in the composer, so a screenshot taken
+  // while the mic was live goes up with this text — the point of allowing a
+  // capture mid-recording in the first place.
   await ask({ text });
 }
 

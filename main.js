@@ -333,7 +333,12 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      spellcheck: false
+      spellcheck: false,
+      // The window hides while a screenshot is taken and whenever it goes to the
+      // tray, and a throttled renderer drops microphone samples on the floor —
+      // the ScriptProcessor fallback runs its callback on the main thread. A
+      // recording has to survive the window going away, so do not throttle.
+      backgroundThrottling: false
     }
   };
   // Only restore position if it still lands on a connected display.
