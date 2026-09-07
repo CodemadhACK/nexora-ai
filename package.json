@@ -25,6 +25,7 @@
       "index.html",
       "audio-dsp.js",
       "audio-worklet.js",
+      "voice-turn.js",
       "safe-mode.js",
       "presentation-mode.js",
       "presentation-watch.js",

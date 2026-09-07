@@ -11,6 +11,7 @@
 const providers = require('./providers');
 const prompts = require('./prompts');
 const { HOTKEYS, isValidAccelerator } = require('./hotkeys');
+const voice = require('./voice-turn');
 
 const DEFAULT_AGENTS = [
   { provider: 'gemini', model: 'gemini-3.8-flash', temperature: 1.0 },
@@ -26,6 +27,14 @@ const DEFAULT_SETTINGS = {
   transcribeProvider: 'gemini',
   transcribeModel: 'gemini-3.5-transcribe',
   micDeviceId: null,          // null means whatever the OS calls the default
+
+  // Hands-free voice. voiceAuto ends a turn on silence so nobody has to reach
+  // for Stop mid-thought; the manual button stays regardless, because no
+  // detector is right every time. continuousConversation reopens the mic once
+  // an answer lands, for a back-and-forth rather than a series of questions.
+  voiceAuto: true,
+  voiceSilenceMs: voice.DEFAULTS.silenceMs,
+  continuousConversation: false,
 
   persona: prompts.DEFAULT_PERSONA,
   historyLimit: 20,
@@ -53,6 +62,7 @@ const DEFAULT_SETTINGS = {
 const SETTABLE = [
   'agents', 'twoAgents', 'synthesis', 'suggestions',
   'transcribeProvider', 'transcribeModel', 'micDeviceId',
+  'voiceAuto', 'voiceSilenceMs', 'continuousConversation',
   'persona', 'historyLimit', 'opacity', 'alwaysOnTop', 'launchHidden',
   'presentationShortcut', 'presentationAutoEnter',
   'lastDisplayId', 'alwaysAskDisplay'
@@ -120,6 +130,13 @@ function normaliseSettings(input) {
   if (!providers.hasProvider(merged.transcribeProvider)) {
     merged.transcribeProvider = DEFAULT_SETTINGS.transcribeProvider;
   }
+
+  // The detector clamps this too, but a settings file is also what the UI reads
+  // back, and a slider showing a value the microphone does not actually use is
+  // its own kind of bug.
+  merged.voiceSilenceMs = voice.normaliseVoiceOptions({ silenceMs: merged.voiceSilenceMs }).silenceMs;
+  merged.voiceAuto = !!merged.voiceAuto;
+  merged.continuousConversation = !!merged.continuousConversation;
   if (typeof merged.persona !== 'string' || !merged.persona.trim()) {
     merged.persona = DEFAULT_SETTINGS.persona;
   }

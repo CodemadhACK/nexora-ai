@@ -8,6 +8,7 @@ const {
   migrateSettings, normaliseSettings, readSettings
 } = require('../settings-schema');
 const prompts = require('../prompts');
+const voice = require('../voice-turn');
 
 /** Exactly what the previous single-provider build wrote. */
 const LEGACY_FILE = {
@@ -212,4 +213,48 @@ test('every settable key is a real setting', () => {
   for (const key of SETTABLE) {
     assert.ok(key in DEFAULT_SETTINGS, `${key} is settable but not a known setting`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Hands-free voice
+// ---------------------------------------------------------------------------
+
+test('hands-free voice ships on, with the manual controls still present', () => {
+  const s = DEFAULT_SETTINGS;
+  assert.equal(s.voiceAuto, true, 'the point of the feature is not having to press Stop');
+  assert.equal(s.continuousConversation, false, 'a mic that reopens itself is opt-in');
+  assert.equal(typeof s.voiceSilenceMs, 'number');
+});
+
+test('the renderer may change the voice settings, since they all live in its UI', () => {
+  for (const key of ['voiceAuto', 'voiceSilenceMs', 'continuousConversation']) {
+    assert.ok(SETTABLE.includes(key), `${key} would be silently ignored`);
+  }
+});
+
+/**
+ * A settings file is hand-editable, and a silence threshold of zero would end
+ * every turn on its first batch — an unusable microphone with no error to
+ * explain it.
+ */
+test('a hand-edited silence threshold is clamped to something usable', () => {
+  assert.equal(normaliseSettings({ voiceSilenceMs: 0 }).voiceSilenceMs, voice.LIMITS.silenceMs[0]);
+  assert.equal(normaliseSettings({ voiceSilenceMs: 1e9 }).voiceSilenceMs, voice.LIMITS.silenceMs[1]);
+  assert.equal(normaliseSettings({ voiceSilenceMs: 'soon' }).voiceSilenceMs, voice.DEFAULTS.silenceMs);
+  assert.equal(normaliseSettings({}).voiceSilenceMs, voice.DEFAULTS.silenceMs);
+});
+
+test('the voice switches survive a file that wrote them as strings', () => {
+  const s = normaliseSettings({ voiceAuto: 'yes', continuousConversation: 0 });
+  assert.equal(s.voiceAuto, true);
+  assert.equal(s.continuousConversation, false);
+});
+
+/** An older settings file predates all of this and must still open. */
+test('a settings file from before hands-free voice picks up the defaults', () => {
+  const old = readSettings(JSON.stringify({ model: 'gemini-2.0-flash', historyLimit: 8 }));
+  assert.equal(old.voiceAuto, true);
+  assert.equal(old.voiceSilenceMs, voice.DEFAULTS.silenceMs);
+  assert.equal(old.continuousConversation, false);
+  assert.equal(old.historyLimit, 8, 'and must not lose what it did set');
 });

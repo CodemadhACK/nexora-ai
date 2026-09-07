@@ -239,6 +239,10 @@
   }
   #status.recording { color: var(--good); }
   #status.error { color: var(--bad); }
+  #voicebar { display: none; align-items: center; gap: 7px; margin-bottom: 7px; }
+  #voicebar.show { display: flex; }
+  #voice-hint { font-size: 11px; color: var(--muted); }
+
   #level { flex: 0 0 58px; height: 4px; border-radius: 4px; background: rgba(255,255,255,0.10); overflow: hidden; display: none; }
   #level > span { display: block; height: 100%; width: 0%; background: var(--good); transition: width .08s linear; }
 
@@ -443,6 +447,11 @@
 
   <footer>
     <div id="status"><span id="status-text">Ready.</span><div id="level"><span></span></div></div>
+    <div id="voicebar">
+      <button class="btn tiny" id="btn-voice-done" type="button">Done / Send</button>
+      <button class="btn tiny" id="btn-voice-cancel" type="button">Cancel</button>
+      <span id="voice-hint"></span>
+    </div>
     <div class="composer">
       <button class="round" id="btn-shot" title="Capture a screenshot (Ctrl+Shift+S)" aria-label="Screenshot">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
@@ -565,6 +574,23 @@
         <div class="field">
           <label for="set-mic-device">Microphone</label>
           <select id="set-mic-device"></select>
+        </div>
+
+        <div class="field">
+          <div class="switch">
+            <span>Send automatically when I stop talking</span>
+            <input type="checkbox" id="set-voice-auto">
+          </div>
+          <div class="switch">
+            <span>Continuous conversation — reopen the mic after each answer</span>
+            <input type="checkbox" id="set-continuous">
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="set-voice-silence">Silence before sending — <span id="voice-silence-val">1.2s</span></label>
+          <input type="range" id="set-voice-silence" min="300" max="5000" step="100">
+          <div class="help">Raise this if you pause to think mid-question. Done / Send is always there either way.</div>
         </div>
 
         <div class="row2">
@@ -761,6 +787,7 @@
 
 </div>
 <script src="audio-dsp.js"></script>
+<script src="voice-turn.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>

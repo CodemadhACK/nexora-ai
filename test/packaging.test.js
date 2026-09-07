@@ -81,7 +81,7 @@ test('the files the renderer loads are packaged too', () => {
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   const scripts = [...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map((m) => m[1]);
 
-  assert.deepEqual(scripts, ['audio-dsp.js', 'renderer.js']);
+  assert.deepEqual(scripts, ['audio-dsp.js', 'voice-turn.js', 'renderer.js']);
   for (const asset of ['index.html', ...scripts]) {
     assert.ok(coveredBy(pkg.build.files, asset), `${asset} must be packaged`);
   }

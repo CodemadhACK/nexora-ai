@@ -21,6 +21,8 @@ const statusText   = $('status-text');
 const statusBar    = $('status');
 const levelBar     = $('level');
 const levelFill    = levelBar.firstElementChild;
+const voicebar     = $('voicebar');
+const voiceHint    = $('voice-hint');
 const btnSend      = $('btn-send');
 const btnMic       = $('btn-mic');
 const btnShot      = $('btn-shot');
@@ -638,10 +640,16 @@ $('btn-discard-shot').onclick = () => {
 // ---------------------------------------------------------------------------
 
 const dsp = window.NexoraAudio;
+const vad = window.NexoraVoice;
 const MAX_RECORD_SECONDS = 120;
 
 let captureNode = null;
 let usingWorklet = false;
+
+// Automatic turn detection. Null when the user has switched it off, in which
+// case the microphone behaves exactly as it always did — a manual toggle.
+let turnDetector = null;
+let turnPhase = null;
 
 function toBase64(arrayBuffer) {
   const view = new Uint8Array(arrayBuffer);
@@ -666,7 +674,39 @@ function onSamples(chunk) {
   levelFill.style.background = level < 0.01 ? 'var(--bad)' : level > 0.6 ? 'var(--warn)' : 'var(--good)';
 
   const rate = audioCtx ? audioCtx.sampleRate : dsp.TARGET_RATE;
-  if (pcmLength > rate * MAX_RECORD_SECONDS) stopRecording();
+  if (pcmLength > rate * MAX_RECORD_SECONDS) { stopRecording(); return; }
+
+  // The detector is fed the batch's own duration rather than a clock reading:
+  // the audio thread knows how much sound it actually captured, and the main
+  // thread may be behind a render.
+  if (turnDetector) onTurnEvent(turnDetector.push(level, (chunk.length / rate) * 1000));
+}
+
+/**
+ * One DOM write per phase change rather than per batch — the phases last whole
+ * seconds and the status line rewriting ten times a second reads as flicker.
+ */
+function onTurnEvent(event) {
+  if (event.type === 'ended') return;
+  if (event.type === 'end') { turnPhase = null; endTurn(event); return; }
+  if (event.type === turnPhase) return;
+  turnPhase = event.type;
+  setStatus(listeningStatus(event), 'recording');
+}
+
+/**
+ * A turn the detector closed on its own. Silence means a finished question, so
+ * it goes; an open microphone nobody spoke into is thrown away rather than sent
+ * as an empty request the user would still be charged for.
+ */
+function endTurn(event) {
+  if (event.reason === 'no-speech') {
+    discardRecording();
+    setStatus(vad.describeTurn(event));
+    return;
+  }
+  setStatus(vad.describeTurn(event), 'recording');
+  stopRecording();
 }
 
 /**
@@ -698,11 +738,14 @@ async function attachCapture() {
   sinkNode.connect(audioCtx.destination);
 }
 
-/** What the status bar says while the mic is live, with or without a shot waiting. */
-function listeningStatus() {
-  return pendingShot
-    ? 'Listening… the screenshot goes with what you say. Click the mic or press Ctrl+Shift+A to stop.'
-    : 'Listening… click the mic or press Ctrl+Shift+A to stop.';
+/** What the status bar says while the mic is live, given the turn's phase and any shot waiting. */
+function listeningStatus(event) {
+  let base;
+  if (event && event.type === 'pause') base = 'Listening… (pause)';
+  else if (turnDetector) base = 'Listening… I will send when you stop talking.';
+  else base = 'Listening… click the mic or press Ctrl+Shift+A to stop.';
+
+  return pendingShot ? `${base} The screenshot goes with what you say.` : base;
 }
 
 /**
@@ -749,17 +792,27 @@ async function startRecording() {
   await attachCapture();
 
   recording = true;
+  turnPhase = null;
+  turnDetector = settings.voiceAuto
+    ? vad.createTurnDetector({ silenceMs: settings.voiceSilenceMs })
+    : null;
+
   btnMic.classList.add('rec');
   levelBar.style.display = 'block';
+  voicebar.classList.add('show');
+  voiceHint.textContent = turnDetector ? 'or just stop talking' : '';
   setStatus(listeningStatus(), 'recording');
 }
 
 /** Tears the audio graph down and returns everything captured, at the device rate. */
 function teardownAudio() {
   recording = false;
+  turnDetector = null;
+  turnPhase = null;
   btnMic.classList.remove('rec');
   levelBar.style.display = 'none';
   levelFill.style.width = '0%';
+  voicebar.classList.remove('show');
 
   // Ask the worklet for the last partial batch before pulling the graph apart,
   // so the final fraction of a second is not lost.
@@ -849,6 +902,13 @@ async function stopRecording() {
   // while the mic was live goes up with this text — the point of allowing a
   // capture mid-recording in the first place.
   await ask({ text });
+
+  // Continuous conversation reopens the microphone once the answer has landed,
+  // so a follow-up is just more speech. Safe Mode outranks it: a privacy cover
+  // that leaves the microphone running is not a privacy cover.
+  if (settings.continuousConversation && !document.body.classList.contains('safe-mode')) {
+    await startRecording();
+  }
 }
 
 /**
@@ -1163,6 +1223,10 @@ function applySettingsToForm() {
 
   $('set-two-agents').checked = !!settings.twoAgents;
   $('set-synthesis').checked = settings.synthesis !== false;
+  $('set-voice-auto').checked = settings.voiceAuto !== false;
+  $('set-continuous').checked = !!settings.continuousConversation;
+  $('set-voice-silence').value = settings.voiceSilenceMs;
+  showSilence(settings.voiceSilenceMs);
   $('set-suggestions').checked = settings.suggestions !== false;
   $('set-ask-display').checked = settings.alwaysAskDisplay !== false;
   $('set-persona').value = settings.persona || '';
@@ -1353,6 +1417,15 @@ function onSend() {
 
 btnSend.onclick = onSend;
 btnMic.onclick = toggleRecording;
+
+// The manual pair stays available whether or not the detector is on: no turn
+// detector is right every time, and being unable to say "I am done" is worse
+// than an occasional early send.
+$('btn-voice-done').onclick = () => { if (recording) stopRecording(); };
+$('btn-voice-cancel').onclick = () => {
+  if (!discardRecording()) return;
+  setStatus('Voice input discarded.');
+};
 btnShot.onclick = startCapture;
 
 btnAgents.onclick = async () => {
@@ -1392,6 +1465,13 @@ $('set-two-agents').onchange = async (e) => {
   await refreshKeyBadge();
 };
 $('set-synthesis').onchange = (e) => patch({ synthesis: e.target.checked });
+
+const showSilence = (ms) => { $('voice-silence-val').textContent = `${(Number(ms) / 1000).toFixed(1)}s`; };
+
+$('set-voice-auto').onchange = (e) => patch({ voiceAuto: e.target.checked });
+$('set-continuous').onchange = (e) => patch({ continuousConversation: e.target.checked });
+$('set-voice-silence').oninput = (e) => showSilence(e.target.value);
+$('set-voice-silence').onchange = (e) => patch({ voiceSilenceMs: Number(e.target.value) });
 $('set-suggestions').onchange = (e) => patch({ suggestions: e.target.checked });
 $('set-ask-display').onchange = (e) => patch({ alwaysAskDisplay: e.target.checked });
 
