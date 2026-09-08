@@ -2,7 +2,7 @@
   "name": "nexora-ai",
   "productName": "Nexora AI",
   "version": "3.0.0",
-  "description": "Nexora AI — an always-on-top technical interview and problem-solving assistant. Screenshot a problem and get the answer, the reasoning, the code, the complexity and how to explain it out loud. Runs two agents in parallel across Gemini and OpenAI.",
+  "description": "Nexora AI — an always-on-top assistant for technical interviews and meetings. It captures your screen, your microphone and system audio, then answers with what to say out loud, the reasoning, working code and the complexity. Claude, Gemini or OpenAI, with your own key and no server in between.",
   "main": "main.js",
   "license": "MIT",
   "scripts": {
