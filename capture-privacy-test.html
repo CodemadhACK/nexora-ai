@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+<title>Nexora Capture Privacy Test Window</title>
+<style>
+  :root { color-scheme: dark; --bg:#111722; --panel:#192231; --line:#34445b; --text:#edf3ff; --muted:#aab7ca; --cyan:#52d4e8; --green:#54d99b; --red:#ff8c8c; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:28px; background:radial-gradient(circle at 80% 10%, #21364b, var(--bg) 48%); color:var(--text); font:14px 'Segoe UI', sans-serif; }
+  h1 { margin:0 0 8px; font-size:22px; letter-spacing:.5px; }
+  p { color:var(--muted); line-height:1.55; }
+  .label { color:var(--cyan); font-size:11px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; }
+  .toolbar { display:flex; align-items:center; gap:12px; margin:20px 0; }
+  button { border:1px solid var(--line); border-radius:7px; padding:9px 14px; background:#26364c; color:var(--text); cursor:pointer; font:inherit; }
+  button:hover { background:#31506b; }
+  #state { font-weight:700; color:var(--red); }
+  #state.on { color:var(--green); }
+  .demo { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:20px 0; }
+  .shape { min-height:110px; display:grid; place-items:center; border:1px solid var(--line); border-radius:10px; background:linear-gradient(135deg,#2b4d65,#28304d); font-weight:700; }
+  .shape.circle { border-radius:50%; background:#316c72; }
+  .diagnostics { border-top:1px solid var(--line); padding-top:18px; }
+  dl { display:grid; grid-template-columns:190px 1fr; gap:9px 14px; margin:12px 0 0; }
+  dt { color:var(--muted); } dd { margin:0; font-family:Consolas,monospace; overflow-wrap:anywhere; }
+  .note { border-left:3px solid #e0b75c; padding:8px 12px; color:#e8d9ac; }
+  @media (max-width:600px) { body { padding:18px; } .demo { grid-template-columns:1fr; } dl { grid-template-columns:1fr; gap:3px; } dd { margin-bottom:7px; } }
+</style>
+</head>
+<body>
+  <div class="label">Nexora local demonstration</div>
+  <h1>NEXORA CAPTURE PRIVACY TEST WINDOW</h1>
+  <p>This window stays visible to you locally. The switch applies Windows display affinity to this window only.</p>
+  <div class="toolbar">
+    <button id="toggle" type="button">Turn privacy ON</button>
+    <span id="state">Screen Capture Privacy: OFF</span>
+  </div>
+  <div class="demo" aria-label="Sample content">
+    <div class="shape">Sample text and UI</div>
+    <div class="shape circle">Capture test</div>
+  </div>
+  <div class="diagnostics">
+    <div class="label">Diagnostic page</div>
+    <dl>
+      <dt>Windows version</dt><dd id="version">unknown</dd>
+      <dt>Test window HWND</dt><dd id="hwnd">unknown</dd>
+      <dt>Current capture-affinity state</dt><dd id="affinity">OFF</dd>
+      <dt>SetWindowDisplayAffinity()</dt><dd id="success">not called</dd>
+      <dt>Error information</dt><dd id="error">none</dd>
+    </dl>
+  </div>
+  <p class="note">Limitation: WDA_EXCLUDEFROMCAPTURE affects supported Windows capture mechanisms only. It does not guarantee exclusion from every screen-sharing, recording, camera, remote-desktop, or other capture technology.</p>
+<script src="capture-privacy-demo.js"></script>
+</body>
+</html>

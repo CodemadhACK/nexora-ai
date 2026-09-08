@@ -202,6 +202,30 @@ test('the renderer can change the shortcut and auto-entry, but not the mode itse
   assert.ok(!SETTABLE.includes('presentationBounds'));
 });
 
+/**
+ * Screen Share Privacy is the one feature in Nexora that genuinely hides the app
+ * from other people, so the two things worth pinning down are that nobody gets
+ * it without asking, and that it cannot be switched on by a generic settings
+ * patch -- it has to go through the channel that actually applies it to a live
+ * window, where the result is reported back honestly.
+ */
+test('Screen Share Privacy is off until someone turns it on', () => {
+  assert.equal(DEFAULT_SETTINGS.hideFromScreenShare, false);
+  assert.equal(normaliseSettings({}).hideFromScreenShare, false);
+  assert.equal(normaliseSettings(migrateSettings(LEGACY_FILE)).hideFromScreenShare, false,
+    'an upgrade must never switch concealment on for someone');
+});
+
+test('Screen Share Privacy cannot be flipped through settings:set', () => {
+  assert.ok(!SETTABLE.includes('hideFromScreenShare'));
+});
+
+test('a hand-edited hideFromScreenShare is coerced to a real boolean', () => {
+  assert.equal(normaliseSettings({ hideFromScreenShare: 'yes' }).hideFromScreenShare, true);
+  assert.equal(normaliseSettings({ hideFromScreenShare: 0 }).hideFromScreenShare, false);
+  assert.equal(normaliseSettings({ hideFromScreenShare: null }).hideFromScreenShare, false);
+});
+
 test('the renderer cannot reach window bounds or Safe Mode through settings:set', () => {
   // Safe Mode has its own channel because flipping it has side effects; bounds
   // are owned by the window. Neither belongs in a generic settings patch.

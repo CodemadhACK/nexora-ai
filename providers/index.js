@@ -12,9 +12,10 @@
 
 const gemini = require('./gemini');
 const openai = require('./openai');
+const anthropic = require('./anthropic');
 const shared = require('./shared');
 
-const PROVIDERS = [gemini, openai];
+const PROVIDERS = [gemini, openai, anthropic];
 const BY_ID = new Map(PROVIDERS.map((p) => [p.id, p]));
 
 const DEFAULT_PROVIDER = gemini.id;

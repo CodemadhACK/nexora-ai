@@ -128,11 +128,17 @@ test('every channel main sends to the window is on the inbound allowlist', () =>
 });
 
 /**
- * The promise both modes make. Neither may reach for the APIs that hide a window
- * from capture or single out a conferencing app — the whole point is that they
- * simply are not on screen.
+ * Concealment lives in exactly one module.
+ *
+ * Screen Share Privacy deliberately hides Nexora's own window from capture, so
+ * the old invariant — that nothing in the app ever conceals — is no longer true,
+ * and a test that still claimed it would only be measuring a technicality: any
+ * file can call into the privacy module without naming an API. What is worth
+ * enforcing is narrower and honest. The concealment APIs may be named in one
+ * place, so there is a single module to audit, and everything else has to go
+ * through it.
  */
-test('nothing in the app touches a screen-capture or concealment API', () => {
+test('screen-capture APIs are confined to the privacy module', () => {
   const forbidden = [
     'setContentProtection',      // Electron's "exclude me from capture"
     'SetWindowDisplayAffinity',  // the Win32 equivalent
@@ -142,11 +148,54 @@ test('nothing in the app touches a screen-capture or concealment API', () => {
 
   for (const file of sourceFiles()) {
     if (/[\\/]test[\\/]|README\.md$/.test(file)) continue;
+    if (['screen-capture-privacy.js', 'capture-privacy-demo.js', 'capture-privacy-test.html', 'index.html'].includes(path.basename(file))) continue;
     const text = fs.readFileSync(file, 'utf8');
     for (const api of forbidden) {
       assert.equal(text.includes(api), false, `${path.relative(ROOT, file)} must not use ${api}`);
     }
   }
+});
+
+/**
+ * What did not change. Safe Mode covers the conversation and Presentation Mode
+ * takes the window off the screen; each describes itself that way to the user.
+ * If either quietly reached for capture concealment instead, or drove the new
+ * switch behind the user's back, its own description would become a lie — and
+ * unlike the feature above, nobody would have asked for it.
+ */
+test('neither Safe Mode nor Presentation Mode conceals a window from capture', () => {
+  const forbidden = [
+    'setContentProtection',
+    'SetWindowDisplayAffinity',
+    'WDA_EXCLUDEFROMCAPTURE',
+    'WDA_MONITOR',
+    'hideFromScreenShare',      // nor may they flip the user's switch for them
+    'privacy:app-set'
+  ];
+
+  for (const file of ['safe-mode.js', 'presentation-mode.js', 'presentation-watch.js']) {
+    const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    for (const api of forbidden) {
+      assert.equal(text.includes(api), false, `${file} must not touch ${api}`);
+    }
+  }
+});
+
+/**
+ * Applying the affinity once, at window creation, looks like it works and does
+ * not: Chromium realises the window when it is first shown and the protection
+ * is gone, while the call still reported success. Nothing else in this suite
+ * can see that — it only shows up in an actual screen capture — so this pins
+ * the fix in place instead.
+ */
+test('Screen Share Privacy is re-applied whenever the window is shown', () => {
+  const main = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+
+  const at = main.indexOf("mainWindow.on('show'");
+  assert.ok(at > 0, 'main.js must handle the window show event');
+  const handler = main.slice(at, main.indexOf('});', at));
+  assert.match(handler, /applyAppWindowPrivacy/,
+    'a window shown from the tray or after a screenshot would lose its protection');
 });
 
 test('no mode is keyed to a particular conferencing application', () => {

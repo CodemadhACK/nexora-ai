@@ -18,7 +18,7 @@ npm start
 
 Requires Node.js 18+. The first `npm install` downloads Electron (~100 MB).
 
-On first launch the settings panel opens. Paste a key for **Google Gemini** or **OpenAI**
+On first launch the settings panel opens. Paste a key for **Google Gemini**, **OpenAI** or **Claude**
 and you're running. Keys are encrypted with your OS keystore (Windows DPAPI / macOS
 Keychain / libsecret) and stored in the app's user-data folder — never in this project
 directory, so they can't be committed by accident.
@@ -27,12 +27,14 @@ directory, so they can't be committed by accident.
 |---|---|---|
 | Google Gemini | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | Free tier is generous; needs only a Google account |
 | OpenAI | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Pay-as-you-go; reasoning models run at a fixed temperature |
+| Claude (Anthropic) | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) | Pay-as-you-go; current models ignore temperature, and there is no speech-to-text |
 
 Environment variables override stored keys, which is handy in development:
 
 ```powershell
 $env:GEMINI_API_KEY = "AIza..."      # PowerShell
 $env:OPENAI_API_KEY = "sk-..."
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
 npm start
 ```
 
@@ -241,6 +243,83 @@ holds your profile and key hints.
 It hides your own window, not the taskbar button or alt-tab entry, which stay
 deliberately visible.
 
+## Screen Share Privacy
+
+Settings -> **Screen Share Privacy** -> *Hide Nexora from screen sharing*. Nexora stays on
+your monitor and is left out of screen shares and recordings that go through supported
+Windows capture. This is the one feature in the app that actually hides it from other
+people, so it behaves accordingly:
+
+- **Off by default**, and never switched on by an upgrade.
+- Applied **before the window is first shown**, so there is no frame where it is visible.
+- It has its own IPC channel and is **not reachable from a generic settings patch**, and
+  neither Safe Mode nor Presentation Mode may touch it.
+- The switch shows what is **actually true**, not what was requested: if the call fails it
+  reads OFF, because a privacy control that claims protection it does not have is worse
+  than one that does nothing.
+
+**What it is not.** It is not a guarantee of invisibility. It covers supported Windows
+capture paths only; a phone pointed at your screen, some remote-desktop tools, hardware
+capture and unsupported paths still see the window. Test it with your own capture tool
+before relying on it — the labeled test window below exists for exactly that.
+
+## Screen Capture Privacy Demonstration
+
+Settings → **Screen Capture Privacy** opens a clearly labeled **NEXORA CAPTURE PRIVACY
+TEST WINDOW** containing sample text, shapes and controls. The window remains visible to
+the local user. Turning the setting **ON** applies Windows content protection to that test
+window only, which on Windows 10 version 2004 and later is the official
+`SetWindowDisplayAffinity()` API with `WDA_EXCLUDEFROMCAPTURE`; turning it **OFF** restores
+`WDA_NONE` (normal capture behavior). The diagnostic page in the test window shows the
+Windows version, native HWND, current affinity, API result and the last error.
+
+The call is made by Electron from inside the app process, in `screen-capture-privacy.js`.
+That module is the only place allowed to name these APIs, and `source-hygiene.test.js`
+fails the build if any other file does — Nexora never hides its own window from capture,
+and the test is what keeps that true.
+
+### Why this is not a separate helper process
+
+An earlier version of this feature shelled out to a small native `.exe` that called
+`SetWindowDisplayAffinity()` itself. That approach cannot work, and it is worth recording
+so nobody rebuilds it: **Windows only permits a process to set display affinity on its own
+windows.** A helper process asking for affinity on a window owned by Nexora gets
+`ERROR_ACCESS_DENIED` (5) every time, no matter how it is built or which user runs it. The
+same call from inside the owning process succeeds. Unit tests did not catch this because
+they mocked the helper invocation, so the cross-process call was never actually made.
+
+### Windows build and run
+
+There is no native build step — the feature is plain Electron. From PowerShell on Windows:
+
+```powershell
+npm install
+npm test
+npm start
+```
+
+To build the installer, use `npm run build:win`. The CI workflow runs the same test and
+installer commands.
+
+### Manual verification
+
+1. Start Nexora on Windows and open Settings → **Screen Capture Privacy**.
+2. Click **Open test window**, confirm the labeled window is visible locally, then turn
+  privacy **ON** either in Settings or inside the test window.
+3. Use a normal supported Windows capture test, such as Snipping Tool or Xbox Game Bar,
+  and capture the display containing the test window. The test window should be absent
+  from the resulting capture while remaining visible on the physical monitor.
+4. Check the diagnostic fields for `WDA_EXCLUDEFROMCAPTURE`, a successful API result and
+  the test window HWND. Turn privacy **OFF**, capture again, and confirm the window is
+  included normally.
+
+`WDA_EXCLUDEFROMCAPTURE` only affects supported Windows screen-capture mechanisms. It is
+not a guarantee for every screen-sharing, recording, camera, remote-desktop or other
+capture technology. Older Windows versions, unsupported capture paths, policy settings,
+or a missing helper may reject the call; Nexora reports the failure and continues running.
+The feature does not hide processes, inject code, overlay other applications, persist
+stealthily, or bypass security and monitoring software.
+
 ---
 
 ## Hotkeys
@@ -273,6 +352,7 @@ providers/           AI provider abstraction
   shared.js            SSE reading, retry/backoff, ProviderError, image trimming
   gemini.js            Google Gemini
   openai.js            OpenAI
+  anthropic.js         Claude, via the official Anthropic SDK
 agents.js            One or two agents, concurrently, plus synthesis and follow-ups
 prompts.js           Every instruction sent to a model, and suggestion parsing
 displays.js          Monitor enumeration, per-display capture, image encoding
@@ -303,6 +383,17 @@ The neutral message format everything else speaks:
   parts: [ { type: 'text', text }, { type: 'image', mime, data /* base64 */ } ] }
 ```
 
+Claude is the one provider that does not hand-roll its HTTP. It uses `@anthropic-ai/sdk`,
+the app's only runtime dependency, because that SDK owns the streaming event shapes, beta
+flags and error taxonomy that are easy to get subtly wrong by hand. It still accepts an
+injected `fetch`, so it is tested through exactly the same seam as the other two. Three
+Claude-specific behaviours are worth knowing: current models reject `temperature`
+outright, thinking is left unconfigured on purpose (omitting it runs adaptive thinking on
+the models that have it), and a request can return HTTP 200 with `stop_reason: "refusal"`,
+which the provider turns into a readable error instead of an empty answer. Anthropic has
+no speech-to-text, so it is filtered out of the voice provider list rather than offered
+and then failing.
+
 Each provider translates that into its own wire format — Gemini's `inline_data`, OpenAI's
 `image_url` data URIs — and translates its errors back into a `ProviderError` carrying a
 `code` the UI can branch on.
@@ -322,8 +413,11 @@ Each provider translates that into its own wire format — Gemini's `inline_data
   resending megabytes of PNG buys nothing but latency.
 - **PNG unless it's big.** Screenshots of code have to stay crisp, so captures stay PNG
   and only fall back to JPEG past ~1.1 MB.
-- **The window is deliberately visible** in the taskbar, in alt-tab and in screen shares.
-  Screen Share Safe Mode is the honest way to hide it.
+- **The window is visible** in the taskbar and in alt-tab, always. It is also visible in
+  screen shares unless you turn on **Screen Share Privacy**, which is off by default, never
+  switched on by an upgrade, and cannot be flipped by a generic settings patch. Safe Mode
+  and Presentation Mode still do not conceal anything: one covers the conversation, the
+  other takes the window off the screen, and `source-hygiene.test.js` holds them to it.
 
 ---
 

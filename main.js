@@ -29,6 +29,7 @@ const audio = require('./audio-dsp');
 const { createAgentRunner } = require('./agents');
 const providers = require('./providers');
 const { DEFAULT_SETTINGS, SETTABLE, normaliseSettings, readSettings } = require('./settings-schema');
+const { createScreenCapturePrivacy } = require('./screen-capture-privacy');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -45,6 +46,7 @@ const DEFAULT_PROFILE = { resume: '', projects: '', notes: '', enabled: true };
 // ---------------------------------------------------------------------------
 
 let mainWindow = null;
+let privacyTestWindow = null;
 let tray = null;
 let settings = { ...DEFAULT_SETTINGS };
 let profile = { ...DEFAULT_PROFILE };
@@ -58,6 +60,8 @@ let runner = null;
 let clickThrough = false;
 let quitting = false;
 let transcribeFallback = false;   // set once the dedicated STT model refuses us
+let screenCapturePrivacy = null;   // the labelled demo window
+let appWindowPrivacy = null;       // Nexora's own window
 
 const userDataDir = () => app.getPath('userData');
 const settingsPath = () => path.join(userDataDir(), 'settings.json');
@@ -351,6 +355,10 @@ function createWindow() {
   mainWindow.setAlwaysOnTop(settings.alwaysOnTop, 'screen-saver');
   mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   mainWindow.setOpacity(Number(settings.opacity) || 1);
+  // Before the window is ever shown, and before anything is loaded into it. A
+  // window that appears and only then becomes protected has already been on
+  // screen for a frame, which is exactly the frame a recording keeps.
+  applyAppWindowPrivacy(settings.hideFromScreenShare, { persist: false });
   mainWindow.loadFile('index.html');
 
   mainWindow.once('ready-to-show', () => {
@@ -360,6 +368,16 @@ function createWindow() {
                     safeMode.shouldShowAtLaunch() &&
                     presentation.shouldShowAtLaunch();
     if (mayShow) mainWindow.show();
+  });
+
+  // Chromium re-realises the window the first time it is shown, and an affinity
+  // set before that does not survive it: the call succeeds, the status says
+  // protected, and the window is captured anyway -- verified by screen capture,
+  // not assumed. Re-assert on every show. This window is hidden and shown
+  // constantly (tray, Safe Mode, and every screenshot steps it aside), so any
+  // one of those would otherwise silently drop the protection.
+  mainWindow.on('show', () => {
+    if (settings.hideFromScreenShare) applyAppWindowPrivacy(true, { persist: false });
   });
 
   mainWindow.on('resize', scheduleBoundsSave);
@@ -374,6 +392,139 @@ function createWindow() {
     shell.openExternal(url);
     return { action: 'deny' };
   });
+}
+
+// The window itself, not its HWND: content protection is applied by Electron
+// from inside this process, which is the only way Windows permits it at all.
+/**
+ * Screen Share Privacy for Nexora's own window.
+ *
+ * Unlike Presentation Mode, which takes the window off the screen entirely, this
+ * leaves it exactly where it is and asks Windows to leave it out of captures. It
+ * is therefore a genuine concealment feature, and the only one in the app: the
+ * user sees the assistant, a screen share does not. It is off by default and
+ * only ever moves when the user moves it.
+ */
+function appPrivacyStatus() {
+  const status = appWindowPrivacy ? appWindowPrivacy.status() : {
+    supported: process.platform === 'win32',
+    excluded: false,
+    succeeded: false,
+    error: 'Privacy service is not ready.'
+  };
+  return { ...status, enabled: !!settings.hideFromScreenShare };
+}
+
+function applyAppWindowPrivacy(enabled, { persist = true } = {}) {
+  if (!appWindowPrivacy || !mainWindow || mainWindow.isDestroyed()) return appPrivacyStatus();
+
+  const status = enabled ? appWindowPrivacy.enable(mainWindow) : appWindowPrivacy.disable(mainWindow);
+  const applied = !!status.succeeded && !!enabled;
+
+  // persist:false is the launch path. A transient failure there must not quietly
+  // rewrite the preference to off -- the user would turn it on, restart, and find
+  // it forgotten with nothing explaining why.
+  if (persist && settings.hideFromScreenShare !== applied) {
+    settings.hideFromScreenShare = applied;
+    saveSettings();
+  }
+
+  const result = { ...status, enabled: !!settings.hideFromScreenShare };
+  sendToWindow('state:app-privacy', result);
+  return result;
+}
+
+function privacyWindow() {
+  if (!privacyTestWindow || privacyTestWindow.isDestroyed()) return null;
+  return privacyTestWindow;
+}
+
+function privacyStatus() {
+  const status = screenCapturePrivacy ? screenCapturePrivacy.status() : {
+    supported: process.platform === 'win32', error: 'Privacy service is not ready.'
+  };
+  return { ...status, windowOpen: !!privacyWindow() };
+}
+
+/**
+ * Writes the preference only when it actually moved. Every call site used to
+ * pair an assignment with saveSettings(), so closing the test window wrote the
+ * same `false` to disk twice — once on close, once on closed — and a toggle the
+ * user never changed wrote it again. saveSettings is synchronous, so those are
+ * main-process stalls bought for nothing.
+ */
+function setPrivacyPreference(enabled) {
+  if (settings.screenCapturePrivacy === enabled) return false;
+  settings.screenCapturePrivacy = enabled;
+  saveSettings();
+  return true;
+}
+
+/**
+ * Pushes the status to both windows. sendToWindow only ever reaches the main
+ * window, so the test window's own diagnostic page kept whatever it last drew
+ * itself: flip the switch from Settings and that page went on saying ON while
+ * the window was being captured normally. A page whose entire job is to report
+ * the truth about this window is the last place that can afford a stale label.
+ */
+function broadcastPrivacy(status) {
+  const payload = status || privacyStatus();
+  sendToWindow('state:privacy', payload);
+  if (privacyTestWindow && !privacyTestWindow.isDestroyed() && !privacyTestWindow.webContents.isDestroyed()) {
+    privacyTestWindow.webContents.send('state:privacy', payload);
+  }
+}
+
+function applyPrivacySetting(enabled) {
+  if (!screenCapturePrivacy) return privacyStatus();
+  const win = privacyWindow();
+  if (!win) {
+    setPrivacyPreference(false);
+    return { ...privacyStatus(), succeeded: false, error: 'Open the privacy test window first.' };
+  }
+  const status = enabled ? screenCapturePrivacy.enable(win) : screenCapturePrivacy.disable(win);
+  setPrivacyPreference(!!status.succeeded && !!enabled);
+  const result = { ...status, windowOpen: true };
+  broadcastPrivacy(result);
+  return result;
+}
+
+function openPrivacyTestWindow() {
+  if (privacyTestWindow && !privacyTestWindow.isDestroyed()) {
+    privacyTestWindow.show();
+    privacyTestWindow.focus();
+    return privacyStatus();
+  }
+
+  privacyTestWindow = new BrowserWindow({
+    width: 720,
+    height: 560,
+    minWidth: 560,
+    minHeight: 440,
+    title: 'Nexora Capture Privacy Test Window',
+    backgroundColor: '#111722',
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
+  });
+  privacyTestWindow.loadFile('capture-privacy-test.html');
+  privacyTestWindow.once('ready-to-show', () => {
+    privacyTestWindow.show();
+    // The status check is what stops the second helper launch: privacy:set opens
+    // this window and applies the affinity itself, and without it this handler
+    // spawned the helper again a moment later for a window already excluded.
+    if (settings.screenCapturePrivacy && !screenCapturePrivacy?.status().excluded) applyPrivacySetting(true);
+  });
+  privacyTestWindow.on('close', () => {
+    if (!quitting) {
+      screenCapturePrivacy?.cleanup(privacyWindow());
+      setPrivacyPreference(false);
+    }
+  });
+  privacyTestWindow.on('closed', () => {
+    setPrivacyPreference(false);
+    privacyTestWindow = null;
+    broadcastPrivacy();
+  });
+  return privacyStatus();
 }
 
 /** Plain show/hide, behind the tray icon click. */
@@ -743,6 +894,17 @@ function registerIpc() {
     };
   });
 
+  // --- Screen Capture Privacy --------------------------------------------
+  ipcMain.handle('privacy:app-get', () => appPrivacyStatus());
+  ipcMain.handle('privacy:app-set', (_e, enabled) => applyAppWindowPrivacy(!!enabled));
+
+  ipcMain.handle('privacy:open', () => openPrivacyTestWindow());
+  ipcMain.handle('privacy:get', () => privacyStatus());
+  ipcMain.handle('privacy:set', (_e, enabled) => {
+    if (!privacyTestWindow || privacyTestWindow.isDestroyed()) openPrivacyTestWindow();
+    return applyPrivacySetting(!!enabled);
+  });
+
   ipcMain.handle('window:minimize', () => mainWindow?.minimize());
   ipcMain.handle('window:hide', () => mainWindow?.hide());
   ipcMain.handle('window:quit', () => { quitting = true; app.quit(); });
@@ -839,6 +1001,8 @@ if (!app.requestSingleInstanceLock()) {
       readKey: (providerId) => credentials.read(providerId, providers.getProvider(providerId)),
       log: warn
     });
+    screenCapturePrivacy = createScreenCapturePrivacy({ log: warn });
+    appWindowPrivacy = createScreenCapturePrivacy({ log: warn });
 
     // Both modes are built before any window exists, so launch respects them.
     safeMode = buildSafeMode();
@@ -860,6 +1024,11 @@ if (!app.requestSingleInstanceLock()) {
 
 app.on('before-quit', () => {
   quitting = true;
+  if (privacyTestWindow && !privacyTestWindow.isDestroyed()) {
+    screenCapturePrivacy?.cleanup(privacyTestWindow);
+    privacyTestWindow.destroy();
+    privacyTestWindow = null;
+  }
   runner?.stopAll();
   presentationWatcher?.stop();
   persistBounds();

@@ -54,6 +54,14 @@ const DEFAULT_SETTINGS = {
   presentationAutoEnter: false,
   presentationBounds: null,
 
+  // Applies Windows content protection to Nexora's own window: it stays on your
+  // monitor but is left out of screen shares and recordings that use supported
+  // capture. State rather than a plain preference -- it has to be applied to a
+  // live window -- so it travels on its own IPC channel, not a settings patch.
+  hideFromScreenShare: false,
+
+  screenCapturePrivacy: false,
+
   lastDisplayId: null,
   alwaysAskDisplay: true
 };
@@ -65,6 +73,7 @@ const SETTABLE = [
   'voiceAuto', 'voiceSilenceMs', 'continuousConversation',
   'persona', 'historyLimit', 'opacity', 'alwaysOnTop', 'launchHidden',
   'presentationShortcut', 'presentationAutoEnter',
+  'screenCapturePrivacy',
   'lastDisplayId', 'alwaysAskDisplay'
 ];
 
@@ -127,8 +136,13 @@ function normaliseSettings(input) {
   merged.historyLimit = Math.min(60, Math.max(2, Number(merged.historyLimit) || 20));
   merged.opacity = Math.min(1, Math.max(0.4, Number(merged.opacity) || 1));
 
-  if (!providers.hasProvider(merged.transcribeProvider)) {
+  // Unknown, or known but with no speech-to-text to offer. The second case is
+  // reachable by hand-editing the file, and it would otherwise fail at the
+  // moment someone speaks rather than at the moment they configure it.
+  const stt = providers.getProvider(merged.transcribeProvider);
+  if (!providers.hasProvider(merged.transcribeProvider) || !(stt.transcribeModels || []).length) {
     merged.transcribeProvider = DEFAULT_SETTINGS.transcribeProvider;
+    merged.transcribeModel = DEFAULT_SETTINGS.transcribeModel;
   }
 
   // The detector clamps this too, but a settings file is also what the UI reads
@@ -149,6 +163,7 @@ function normaliseSettings(input) {
   merged.presentationMode = !!merged.presentationMode;
   merged.presentationAutoEnter = !!merged.presentationAutoEnter;
   merged.presentationBounds = normaliseBounds(merged.presentationBounds);
+  merged.hideFromScreenShare = !!merged.hideFromScreenShare;
 
   return merged;
 }

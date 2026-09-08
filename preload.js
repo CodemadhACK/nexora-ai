@@ -16,6 +16,8 @@ const INBOUND = new Set([
   'state:click-through',
   'state:safe-mode',
   'state:presentation',
+  'state:privacy',
+  'state:app-privacy',
   'state:hotkeys',
   'state:settings',
   'ui:open-settings'
@@ -66,6 +68,18 @@ contextBridge.exposeInMainWorld('nexora', {
     toggle: () => ipcRenderer.invoke('presentation:toggle'),
     setShortcut: (accelerator) => ipcRenderer.invoke('presentation:shortcut', accelerator),
     setAutoEnter: (enabled) => ipcRenderer.invoke('presentation:auto', enabled)
+  },
+
+  privacy: {
+    get: () => ipcRenderer.invoke('privacy:get'),
+    set: (enabled) => ipcRenderer.invoke('privacy:set', enabled),
+    open: () => ipcRenderer.invoke('privacy:open'),
+
+    // Nexora's own window, as opposed to the labelled demo window above.
+    app: {
+      get: () => ipcRenderer.invoke('privacy:app-get'),
+      set: (enabled) => ipcRenderer.invoke('privacy:app-set', enabled)
+    }
   },
 
   transcribe: (wavBase64, meta) => ipcRenderer.invoke('transcribe', wavBase64, meta),

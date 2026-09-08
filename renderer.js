@@ -1212,7 +1212,11 @@ function wireAgentForm(index) {
 
 function fillTranscribeForm() {
   const provider = providerById(settings.transcribeProvider);
-  fillSelect($('set-transcribe-provider'), providerList.map((p) => ({ id: p.id, label: p.label })), provider.id);
+  // Only providers that actually do speech-to-text. Anthropic has no such
+  // endpoint, and offering it here would be a dropdown entry whose only
+  // outcome is an error the first time someone holds the talk key.
+  const sttProviders = providerList.filter((p) => (p.transcribeModels || []).length);
+  fillSelect($('set-transcribe-provider'), sttProviders.map((p) => ({ id: p.id, label: p.label })), provider.id);
   fillSelect($('set-transcribe'), provider.transcribeModels, settings.transcribeModel);
 }
 
@@ -1236,8 +1240,88 @@ function applySettingsToForm() {
   $('op-val').textContent = `${Math.round(settings.opacity * 100)}%`;
   $('set-ontop').checked = !!settings.alwaysOnTop;
   $('set-hidden').checked = !!settings.launchHidden;
+  refreshCapturePrivacy();
+  refreshAppPrivacy();
   syncHeader();
   refreshDisplayNote();
+}
+
+/**
+ * Screen Share Privacy for Nexora's own window. The badge and the switch both
+ * render `excluded` -- what is actually true right now -- rather than the saved
+ * preference, so a call that failed shows as off instead of quietly claiming a
+ * protection the window does not have.
+ */
+function applyAppPrivacy(status) {
+  const on = !!(status && status.excluded);
+  const toggle = $('set-hide-app');
+  const badge = $('hide-app-state');
+  if (toggle) toggle.checked = on;
+  if (badge) { badge.textContent = on ? 'ON' : 'OFF'; badge.className = `badge ${on ? 'ok' : ''}`.trim(); }
+}
+
+async function refreshAppPrivacy() {
+  try {
+    applyAppPrivacy(await api.privacy.app.get());
+  } catch {
+    applyAppPrivacy(null);
+  }
+}
+
+async function setAppPrivacy(enabled) {
+  try {
+    const status = await api.privacy.app.set(enabled);
+    applyAppPrivacy(status);
+    if (enabled && !status.succeeded) {
+      setStatus(`Could not hide Nexora from screen sharing: ${status.error || 'unsupported on this system'}`, 'error');
+    }
+  } catch (err) {
+    applyAppPrivacy(null);
+    setStatus(`Could not change Screen Share Privacy: ${err.message}`, 'error');
+  }
+}
+
+/**
+ * Asks the main process what is actually true instead of trusting the stored
+ * preference. The preference records what was switched on last session; it is
+ * not evidence that this session's test window is excluded — the window may not
+ * even be open. Rendering ON from it put an ON badge over an unprotected
+ * window, which is the single failure this feature cannot afford.
+ */
+async function refreshCapturePrivacy() {
+  try {
+    applyCapturePrivacy(await api.privacy.get());
+  } catch {
+    applyCapturePrivacy(null);
+  }
+}
+
+function applyCapturePrivacy(status) {
+  const on = !!(status && status.excluded);
+  const toggle = $('set-capture-privacy');
+  const badge = $('capture-privacy-state');
+  if (toggle) toggle.checked = on;
+  if (badge) { badge.textContent = on ? 'ON' : 'OFF'; badge.className = `badge ${on ? 'ok' : ''}`.trim(); }
+  const result = $('capture-privacy-result');
+  if (result && status) {
+    // Three states, not two. A call that has not happened yet is neither a pass
+    // nor a failure, and labelling an untried API 'API failed' sends people
+    // hunting for a broken build that is fine.
+    const failure = status.succeeded ? null : (status.error == null ? null : String(status.error));
+    result.textContent = status.succeeded ? 'API succeeded' : (failure || 'not tested');
+    result.className = `badge ${status.succeeded ? 'ok' : (failure ? 'no' : '')}`.trim();
+  }
+}
+
+async function setCapturePrivacy(enabled) {
+  try {
+    const status = await api.privacy.set(enabled);
+    applyCapturePrivacy(status);
+    if (!status.succeeded) setStatus(`Screen Capture Privacy failed: ${status.error || 'unsupported Windows API'}`, 'error');
+  } catch (err) {
+    applyCapturePrivacy({ excluded: false, succeeded: false, error: err.message });
+    setStatus(`Could not change Screen Capture Privacy: ${err.message}`, 'error');
+  }
 }
 
 async function refreshDisplayNote() {
@@ -1494,6 +1578,12 @@ $('set-opacity').onchange = (e) => patch({ opacity: Number(e.target.value) });
 
 $('set-ontop').onchange = (e) => patch({ alwaysOnTop: e.target.checked });
 $('set-hidden').onchange = (e) => patch({ launchHidden: e.target.checked });
+$('set-hide-app').onchange = (e) => setAppPrivacy(e.target.checked);
+$('set-capture-privacy').onchange = (e) => setCapturePrivacy(e.target.checked);
+$('btn-open-capture-test').onclick = async () => {
+  const status = await api.privacy.open();
+  applyCapturePrivacy(status);
+};
 
 safeToggle.onchange = (e) => setSafeMode(e.target.checked);
 $('btn-safe-off').onclick = () => setSafeMode(false);
@@ -1563,6 +1653,8 @@ api.on('state:hotkeys', (failed) => {
   setStatus(`Another app already owns ${failed.map((f) => f.accelerator).join(', ')}.`, 'error');
 });
 api.on('state:settings', (next) => { settings = next; applySettingsToForm(); });
+api.on('state:privacy', applyCapturePrivacy);
+api.on('state:app-privacy', applyAppPrivacy);
 
 // ---------------------------------------------------------------------------
 // Boot

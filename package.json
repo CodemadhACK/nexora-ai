@@ -23,6 +23,9 @@
       "preload.js",
       "renderer.js",
       "index.html",
+      "capture-privacy-test.html",
+      "capture-privacy-demo.js",
+      "screen-capture-privacy.js",
       "audio-dsp.js",
       "audio-worklet.js",
       "voice-turn.js",
@@ -42,7 +45,9 @@
       "icon.ico"
     ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "icon.ico"
     },
     "nsis": {
@@ -52,7 +57,15 @@
     },
     "mac": {
       "category": "public.app-category.developer-tools",
-      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
       "icon": "icon.icns",
       "darkModeSupport": true,
       "extendInfo": {
@@ -61,12 +74,16 @@
       }
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "icon": "icon.png",
       "category": "Development"
     }
   },
-  "dependencies": {},
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0"
+  },
   "devDependencies": {
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8"

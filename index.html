@@ -722,6 +722,33 @@
         <div class="help" id="pm-auto-note"></div>
       </div>
 
+      <div class="card">
+        <h4>Screen Share Privacy <span class="badge" id="hide-app-state">OFF</span></h4>
+        <div class="switch">
+          <span>Hide Nexora from screen sharing</span>
+          <input type="checkbox" id="set-hide-app">
+        </div>
+        <div class="help">
+          Nexora stays on your own monitor but is left out of screen shares and recordings that go
+          through supported Windows capture. This is not a guarantee: a phone pointed at the screen,
+          some remote-desktop tools, and capture paths Windows does not cover will still see it.
+          Test it before you rely on it.
+        </div>
+
+        <div class="switch">
+          <span>Also hide the labeled test window <span class="badge" id="capture-privacy-state">OFF</span></span>
+          <input type="checkbox" id="set-capture-privacy">
+        </div>
+        <div class="inline">
+          <button class="btn tiny" id="btn-open-capture-test" type="button">Open test window</button>
+          <span class="badge" id="capture-privacy-result">not tested</span>
+        </div>
+        <div class="help">
+          The test window applies the same Windows <code>WDA_EXCLUDEFROMCAPTURE</code> affinity to a
+          clearly labeled window, so you can confirm the effect with your own capture tool.
+        </div>
+      </div>
+
       <div class="field">
         <label>Screen Share Safe Mode</label>
         <div class="switch">
@@ -761,8 +788,9 @@
         <div class="help">
           Nexora runs entirely on your machine. Audio, screenshots and text go directly from
           this app to the provider you configured, using your own key — there is no
-          intermediate server. The window is deliberately visible in the taskbar and in screen
-          shares; Safe Mode above is the honest way to hide it.
+          intermediate server. The window is visible in the taskbar and in alt-tab. It also
+          appears in screen shares unless you turn on Screen Share Privacy above, which is off
+          by default.
         </div>
       </div>
 

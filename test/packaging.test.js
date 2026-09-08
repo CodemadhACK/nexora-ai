@@ -82,7 +82,7 @@ test('the files the renderer loads are packaged too', () => {
   const scripts = [...html.matchAll(/<script[^>]+src="([^"]+)"/g)].map((m) => m[1]);
 
   assert.deepEqual(scripts, ['audio-dsp.js', 'voice-turn.js', 'renderer.js']);
-  for (const asset of ['index.html', ...scripts]) {
+  for (const asset of ['index.html', ...scripts, 'capture-privacy-test.html', 'capture-privacy-demo.js']) {
     assert.ok(coveredBy(pkg.build.files, asset), `${asset} must be packaged`);
   }
 });

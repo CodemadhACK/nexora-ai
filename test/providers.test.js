@@ -19,9 +19,9 @@ const withImage = (text) => [{
 // Registry
 // ---------------------------------------------------------------------------
 
-test('both providers are registered and expose the same interface', () => {
+test('every provider is registered and exposes the same interface', () => {
   const ids = providers.PROVIDERS.map((p) => p.id);
-  assert.deepEqual(ids.sort(), ['gemini', 'openai']);
+  assert.deepEqual(ids.sort(), ['anthropic', 'gemini', 'openai']);
 
   for (const provider of providers.PROVIDERS) {
     for (const key of ['id', 'label', 'keyEnv', 'keyUrl', 'models', 'transcribeModels', 'defaults', 'supports']) {
