@@ -198,6 +198,96 @@ test('Screen Share Privacy is re-applied whenever the window is shown', () => {
     'a window shown from the tray or after a screenshot would lose its protection');
 });
 
+/**
+ * The recording carries the microphone and the system mix together; the
+ * end-of-turn detector must not. It answers "have I stopped speaking", and if
+ * the other side of the call votes, then a meeting with anyone talking -- or
+ * any music playing -- never falls silent, the turn never ends, and the
+ * recording runs to the hard cap. Verified once by hand; pinned here.
+ */
+test('the end-of-turn detector listens to the microphone, not the mix', () => {
+  const renderer = fs.readFileSync(path.join(ROOT, 'renderer.js'), 'utf8');
+  const samples = functionBody(renderer, 'function onSamples(');
+
+  assert.match(samples, /micLevel\(/,
+    'onSamples must take its level from the microphone tap');
+  assert.equal(/for \(let i = 0; i < chunk\.length; i \+= 8\)/.test(samples), false,
+    'computing the level from the batch would include system audio');
+});
+
+/**
+ * Leaving Presentation Mode, summoning the window with the hotkey and creating
+ * it all used to force the taskbar button back on. Any one of them would have
+ * undone the user's preference the moment the window reappeared, which is the
+ * kind of setting that looks broken rather than ignored.
+ */
+test('showing the window never forces the taskbar button back', () => {
+  const main = fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8');
+  assert.equal(main.includes('setSkipTaskbar(false)'), false,
+    'route it through applyTaskbarVisibility so the preference survives being shown');
+  assert.match(main, /function applyTaskbarVisibility/);
+});
+
+/**
+ * The detector listens to the microphone alone, so its "no speech" verdict is
+ * about the user, not about the room. Sitting quietly while an interviewer
+ * talks is the normal case for this app, and discarding on that verdict threw
+ * away the one recording worth keeping.
+ */
+/**
+ * Force stop has to hold both doors. Blocking only the start leaves a clip
+ * already in hand free to upload, and blocking only the upload leaves the
+ * microphone live -- either one makes the switch a lie.
+ */
+/**
+ * The old fallback question told the model to describe the screen, which is the
+ * wrong question whenever someone has just asked one out loud. A screenshot
+ * taken right after a transcript is evidence for that question, not a subject
+ * in its own right.
+ */
+test('a screenshot sent with nothing typed answers what was just heard', () => {
+  const renderer = fs.readFileSync(path.join(ROOT, 'renderer.js'), 'utf8');
+  const body = functionBody(renderer, 'function screenshotQuestion(');
+
+  assert.match(body, /recentTranscript\(\)/,
+    'the fallback question has to consult what was last transcribed');
+  assert.match(body, /just asked out loud/,
+    'and put that question to the model rather than asking about the screen');
+
+  const ask = functionBody(renderer, 'async function ask(');
+  assert.match(ask, /screenshotQuestion\(\)/);
+  assert.equal(ask.includes("'What is on this screen? Answer it.'"), false,
+    'the bare screen-describing prompt must not remain in ask()');
+});
+
+test('force stop blocks recording and transcription, not just one of them', () => {
+  const renderer = fs.readFileSync(path.join(ROOT, 'renderer.js'), 'utf8');
+
+  const start = functionBody(renderer, 'async function startRecording(');
+  assert.match(start, /forceStop/, 'force stop must stop a recording from starting');
+
+  const stop = functionBody(renderer, 'async function stopRecording(');
+  assert.match(stop, /forceStop/, 'force stop must stop a captured clip being uploaded');
+});
+
+test('a silent microphone does not discard a recording of the call', () => {
+  const renderer = fs.readFileSync(path.join(ROOT, 'renderer.js'), 'utf8');
+  const body = functionBody(renderer, 'function endTurn(');
+
+  assert.match(body, /sysPeak/,
+    'the no-speech discard must weigh what the system side heard');
+  assert.match(body, /stopRecording\(\)/,
+    'a turn carrying system audio has to reach the transcription path');
+});
+
+test('a recording releases the system audio capture when it ends', () => {
+  // A live loopback track holds a system capture open for as long as it exists.
+  const renderer = fs.readFileSync(path.join(ROOT, 'renderer.js'), 'utf8');
+  const teardown = functionBody(renderer, 'function teardownAudio(');
+  assert.match(teardown, /sysStream\.getTracks\(\)\.forEach/,
+    'the loopback tracks must be stopped, not just disconnected');
+});
+
 test('no mode is keyed to a particular conferencing application', () => {
   const named = /\b(teams|zoom|webex|slack|google ?meet)\b/i;
 

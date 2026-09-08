@@ -106,8 +106,58 @@ test('the system prompt travels as a top-level parameter, not as a message', asy
   });
 
   const { body } = fetchImpl.calls[0];
-  assert.equal(body.system, 'You are terse.');
+  assert.equal(body.system[0].text, 'You are terse.');
   assert.deepEqual(body.messages.map((m) => m.role), ['user']);
+});
+
+// ---------------------------------------------------------------------------
+// Caching, effort and usage
+// ---------------------------------------------------------------------------
+
+test('the system prompt is sent as a cacheable block', () => {
+  // It is the stable half of every request -- persona, profile and house style
+  // do not change between turns while the messages after them grow -- so it is
+  // the one part worth a cache breakpoint.
+  const params = anthropic._internals.buildParams({
+    model: 'claude-opus-5', system: 'stable rules', messages: [], maxTokens: 100
+  });
+  assert.deepEqual(params.system, [
+    { type: 'text', text: 'stable rules', cache_control: { type: 'ephemeral' } }
+  ]);
+});
+
+test('effort follows what the call is for', () => {
+  const effortFor = (intent) => anthropic._internals.buildParams({
+    model: 'claude-opus-5', messages: [], maxTokens: 100, intent
+  }).output_config.effort;
+
+  assert.equal(effortFor('solve'), 'high', 'the answer is the product');
+  assert.equal(effortFor('suggestions'), 'low', 'four short chips need no deliberation');
+  assert.equal(effortFor(undefined), 'high', 'an unspecified call is treated as the important one');
+});
+
+test('effort is withheld from the model that errors on it', () => {
+  // Haiku 4.5 takes a temperature and rejects effort; the current models are
+  // the exact opposite. Sending the wrong one to either is a 400.
+  const haiku = anthropic._internals.buildParams({
+    model: 'claude-haiku-4-5', messages: [], maxTokens: 100, intent: 'solve'
+  });
+  assert.equal('output_config' in haiku, false);
+});
+
+test('token usage is reported back, so a dead cache is visible', async () => {
+  const seen = [];
+  const fetchImpl = fakeFetch(() => sse(streamBody()));
+
+  await anthropic.stream({
+    apiKey: 'k', model: 'claude-opus-5', messages: userText('hi'),
+    onUsage: (u) => seen.push(u), fetchImpl
+  });
+
+  assert.equal(seen.length, 1);
+  assert.equal(typeof seen[0].cacheRead, 'number');
+  assert.equal(typeof seen[0].cacheWrite, 'number');
+  assert.equal(seen[0].output, 5);
 });
 
 test('an image becomes a base64 image block', async () => {

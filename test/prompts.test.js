@@ -12,8 +12,7 @@ const prompts = require('../prompts');
 test('the coding format asks for every section the answer needs', () => {
   const coding = prompts.FORMATS.coding;
   for (const heading of ['### Answer', '### Explanation', '### Code', '### How it works',
-                         '### Complexity', '### Edge cases and tests', '### Interview explanation',
-                         '### Interviewer follow-ups']) {
+                         '### Complexity', '### Edge cases and tests', '### Interview explanation']) {
     assert.ok(coding.includes(heading), `coding format is missing ${heading}`);
   }
   assert.match(coding, /\*\*Time:\*\*/);
@@ -38,6 +37,24 @@ test('behavioural questions get STAR, not the coding headings', () => {
   assert.ok(!behavioural.includes('### Complexity'));
 });
 
+/**
+ * The behavioural format used to open with delivery notes — "speak for about two
+ * minutes, take accountability, avoid blaming other teams". That is worthless to
+ * someone already mid-sentence in front of an interviewer, and it occupied the
+ * one section they actually read aloud.
+ */
+test('a behavioural answer leads with words to say, not coaching about saying them', () => {
+  const behavioural = prompts.FORMATS.behavioural;
+
+  assert.match(behavioural, /### Say this/);
+  assert.equal(behavioural.includes('### Saying it well'), false,
+    'the delivery-notes section was the first thing on screen during an interview');
+  assert.match(behavioural, /never advice about/i);
+
+  // And the rule generalised, so no other format drifts back into coaching.
+  assert.match(prompts.HOUSE_STYLE, /words to say, never coaching/i);
+});
+
 test('conceptual questions are told explicitly not to borrow the coding format', () => {
   assert.match(prompts.FORMATS.conceptual, /do NOT use the coding headings/i);
   assert.ok(!prompts.FORMATS.conceptual.includes('### Code'));
@@ -49,6 +66,41 @@ test('the instruction routes by kind before choosing a shape', () => {
   for (const kind of ['coding', 'system-design', 'conceptual', 'debugging', 'behavioural']) {
     assert.ok(system.includes(kind), `routing should name ${kind}`);
   }
+});
+
+/**
+ * A live bug, not a hypothetical. Asked "before we start, can you introduce
+ * yourself?", the app introduced *itself* as an AI assistant, mid-interview,
+ * because the user's persona had been edited to "I am Nexora". The framing has
+ * to survive a careless persona, so it is a separate section that says it
+ * outranks one.
+ */
+test('the assistant is never a party to the conversation it is listening to', () => {
+  const system = prompts.buildSystemInstruction({ persona: 'I am Nexora' });
+
+  assert.match(system, /never a party to the conversation/i);
+  assert.match(system, /Never introduce yourself/i);
+  assert.match(system, /outranks the persona/i);
+
+  // It has to come after the persona to override it, not before.
+  assert.ok(system.indexOf('I am Nexora') < system.indexOf('outranks the persona'),
+    'the framing must follow the persona it overrides');
+});
+
+test('a question about the candidate is answered as the candidate', () => {
+  // A self-introduction wants a spoken paragraph, not STAR; a question about a
+  // specific past situation wants STAR. Both are the candidate's answer.
+  assert.match(prompts.ROUTING, /introduce yourself/i);
+  assert.match(prompts.ROUTING, /never yours/i);
+  assert.match(prompts.ROUTING, /behavioural and wants STAR/i);
+  assert.match(prompts.FORMATS.chat, /in the candidate's voice from their profile/i);
+  assert.match(prompts.FORMATS.chat, /Not this kind/i);
+  assert.match(prompts.FORMATS.chat, /needs STAR/i);
+});
+
+test('an empty profile is admitted rather than filled in with invention', () => {
+  assert.match(prompts.SPEAKER_FRAMING, /Never invent a background/i);
+  assert.match(prompts.SPEAKER_FRAMING, /they need to add/i);
 });
 
 test('the default persona is used when none is configured', () => {
@@ -120,6 +172,31 @@ test('the synthesis prompt copes with a missing answer', () => {
 // Follow-up suggestions
 // ---------------------------------------------------------------------------
 
+/**
+ * The follow-up questions used to appear twice: written into the answer as a
+ * final section, and again as the buttons under it. The buttons are the useful
+ * copy — they can be clicked — so the answer no longer carries them, and the
+ * buttons now carry what the interviewer would ask rather than what the user
+ * might want to look up.
+ */
+test('no format ends by listing follow-up questions', () => {
+  for (const [kind, format] of Object.entries(prompts.FORMATS)) {
+    assert.equal(/### .*follow-ups/i.test(format), false,
+      `${kind} still writes follow-ups into the answer, duplicating the buttons`);
+  }
+  assert.match(prompts.ROUTING, /shows them as buttons under the answer/i);
+});
+
+test('the suggestion buttons predict the interviewer, not the user', () => {
+  assert.match(prompts.SUGGESTIONS_SYSTEM, /interviewer asks next/i);
+
+  const text = prompts.buildSuggestionMessages({ question: 'q', answer: 'a' })[0].parts[0].text;
+  assert.match(text, /an interviewer is most likely to ask next/i);
+  assert.match(text, /the way the interviewer would say it/i);
+  // Clicking one sends it back as the next question, so it cannot lean on this prompt.
+  assert.match(text, /stand alone with no context/i);
+});
+
 test('the suggestion prompt insists on specificity and includes the answer', () => {
   const text = prompts.buildSuggestionMessages({
     question: 'Explain Kubernetes pods', answer: 'A pod is the smallest deployable unit…'
@@ -187,20 +264,70 @@ test('objects with a text field are accepted, since models drift to that shape',
  * the spoken version under a code block is one they have to hunt for while an
  * interviewer waits.
  */
-test('every format leads with the section that gets read out loud', () => {
-  const spoken = {
-    coding: '### Interview explanation',
-    'system-design': '### Interview explanation',
-    conceptual: '### Interview explanation',
-    debugging: '### Interview explanation',
-    behavioural: '### Saying it well'
+test('every format leads with what the user says out loud, questions first', () => {
+  // Clarifying questions are spoken too, and they are spoken first: a candidate
+  // asks what the input can look like before talking about a solution. So where
+  // a kind has them they lead, and the spoken explanation follows immediately.
+  const opening = {
+    chat: [],   // deliberately headingless — see the test below
+    coding: ['### Ask first', '### Interview explanation'],
+    'system-design': ['### Ask first', '### Interview explanation'],
+    debugging: ['### Ask first', '### Interview explanation'],
+    conceptual: ['### Interview explanation'],
+    behavioural: ['### Say this']
   };
 
-  assert.deepEqual(Object.keys(spoken).sort(), Object.keys(prompts.FORMATS).sort(),
+  assert.deepEqual(Object.keys(opening).sort(), Object.keys(prompts.FORMATS).sort(),
     'every kind needs something to say out loud, including any newly added one');
 
-  for (const [kind, heading] of Object.entries(spoken)) {
+  for (const [kind, expected] of Object.entries(opening)) {
     const headings = prompts.FORMATS[kind].split('\n').filter((line) => line.startsWith('### '));
-    assert.equal(headings[0], heading, `${kind} should open with ${heading}, not ${headings[0]}`);
+    assert.deepEqual(headings.slice(0, expected.length), expected,
+      `${kind} should open with ${expected.join(' then ')}`);
   }
+});
+
+/**
+ * The failure this guards against is reading out four generic questions for a
+ * problem that was already fully specified, which sounds like stalling rather
+ * than rigour. Every kind that asks must also say when not to.
+ */
+test('the clarifying section tells the model when not to ask', () => {
+  for (const kind of ['coding', 'system-design', 'debugging']) {
+    const format = prompts.FORMATS[kind];
+    const section = format.slice(format.indexOf('### Ask first'), format.indexOf('### Interview explanation'));
+    assert.match(section, /do not invent questions|say so in one line|assume if they/i,
+      `${kind} must give the model an out when there is nothing worth asking`);
+  }
+});
+
+/**
+ * Most of what arrives is transcribed speech, and speech is mostly not
+ * questions. "Hello, hello, hello" answered with clarifying questions, a code
+ * block and a complexity analysis is the failure this kind exists to prevent.
+ */
+test('the chat kind carries no headings at all', () => {
+  const headings = prompts.FORMATS.chat.split('\n').filter((line) => line.startsWith('### '));
+  assert.deepEqual(headings, [], 'a greeting answered under headings is the bug this prevents');
+  assert.match(prompts.FORMATS.chat, /one or two sentences/i);
+  assert.match(prompts.FORMATS.chat, /no complexity analysis/i);
+});
+
+test('the router is told to consider small talk before the structured kinds', () => {
+  assert.match(prompts.ROUTING, /KINDS: chat/, 'chat should be the first kind offered');
+  assert.match(prompts.ROUTING, /Check chat first/i);
+});
+
+test('a garbled fragment is handed back, not answered as if it were a question', () => {
+  // Transcribing a call produces half sentences. Inventing a question to fit
+  // one and then answering it is worse than saying it did not come through.
+  assert.match(prompts.FORMATS.chat, /garbled|too partial/i);
+  assert.match(prompts.FORMATS.chat, /do not invent a question/i);
+});
+
+test('conceptual and behavioural answers do not open by asking questions', () => {
+  // "What is a deadlock", answered with clarifying questions, is a worse answer
+  // rather than a more careful one.
+  assert.ok(!prompts.FORMATS.conceptual.includes('### Ask first'));
+  assert.ok(!prompts.FORMATS.behavioural.includes('### Ask first'));
 });

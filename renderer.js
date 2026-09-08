@@ -21,6 +21,8 @@ const statusText   = $('status-text');
 const statusBar    = $('status');
 const levelBar     = $('level');
 const levelFill    = levelBar.firstElementChild;
+const levelSysBar  = $('level-sys');
+const levelSysFill = levelSysBar.firstElementChild;
 const voicebar     = $('voicebar');
 const voiceHint    = $('voice-hint');
 const btnSend      = $('btn-send');
@@ -35,6 +37,7 @@ const safeScreen   = $('safe-mode-screen');
 const safeToggle   = $('set-safe-mode');
 const shotbar      = $('shotbar');
 const pmChip       = $('btn-presentation');
+const fsChip       = $('btn-forcestop');
 const pmToggle     = $('set-presentation');
 
 // ---------------------------------------------------------------------------
@@ -46,6 +49,12 @@ let profile = null;
 let providerList = [];
 let history = [];            // { role, parts, text, imageDataUrl }
 let pendingShot = null;      // { dataBase64, mimeType, display, dataUrl }
+
+// The last thing heard, so a screenshot taken just afterwards can be tied to it.
+let lastTranscript = { text: '', at: 0 };
+// Long enough to cover reading a problem off the screen and reaching for the
+// capture key; short enough that yesterday's question never gets attached.
+const TRANSCRIPT_LINK_MS = 5 * 60 * 1000;
 let run = null;              // active run: { requestId, panes: Map, turn }
 let presentation = null;     // { enabled, shortcut, shortcutLabel, autoEnter, ... }
 let busy = false;
@@ -53,6 +62,14 @@ let recording = false;
 let recordingShortcut = false;
 
 let micStream = null, audioCtx = null, procNode = null, srcNode = null, sinkNode = null;
+let sysStream = null, sysNode = null, sysGain = null, micGain = null, mixNode = null;
+let micAnalyser = null, micBuf = null;
+let sysAnalyser = null, sysBuf = null;
+// Loudest system audio seen during this recording. The turn detector cannot
+// see it, so this is what tells us whether anything was said at all.
+let sysPeak = 0;
+// Above digital silence and the odd interface blip, below any real speech.
+const SYSTEM_AUDIO_FLOOR = 0.01;
 let pcmChunks = [], pcmLength = 0;
 
 const providerById = (id) => providerList.find((p) => p.id === id) || providerList[0];
@@ -298,7 +315,7 @@ function renderSuggestions(view, items) {
 
   const label = document.createElement('div');
   label.className = 'label';
-  label.textContent = 'Suggested follow-ups';
+  label.textContent = 'They may ask next';
   view.followups.appendChild(label);
 
   for (const item of items) {
@@ -424,6 +441,31 @@ function updateRunStatus() {
   }
 }
 
+/** The most recent transcript, if it is recent enough to still be the subject. */
+function recentTranscript() {
+  if (!lastTranscript.text) return '';
+  if (Date.now() - lastTranscript.at > TRANSCRIPT_LINK_MS) return '';
+  return lastTranscript.text;
+}
+
+/**
+ * What to ask when a screenshot is sent with nothing typed.
+ *
+ * "What is on this screen? Answer it." was actively wrong for the way this app
+ * gets used. Someone asks a question out loud, it is transcribed, and then the
+ * screen is captured because the problem is sitting on it — at which point
+ * describing the screen answers a question nobody asked. When something was
+ * heard a moment ago, the screenshot is evidence for that question, so ask that
+ * one and point at the screen as where to look.
+ */
+function screenshotQuestion() {
+  const heard = recentTranscript();
+  if (!heard) return 'What is on this screen? Answer it.';
+  return `The question that was just asked out loud was: "${heard}"\n\n` +
+         'Answer that question, using what is on this screen. If the screen shows a ' +
+         'different problem from the one asked, say so and answer what is on the screen.';
+}
+
 async function ask({ text, shot }) {
   if (busy) return;
 
@@ -433,7 +475,7 @@ async function ask({ text, shot }) {
 
   const parts = [];
   if (attached) parts.push({ type: 'image', mime: attached.mimeType, data: attached.dataBase64 });
-  const question = trimmed || 'What is on this screen? Answer it.';
+  const question = trimmed || screenshotQuestion();
   parts.push({ type: 'text', text: question });
 
   history.push({ role: 'user', parts, text: question, imageDataUrl: attached ? attached.dataUrl : null });
@@ -517,7 +559,9 @@ function showShot(shot) {
   if (recording) {
     input.placeholder = 'Still listening… this screenshot goes with what you say.';
   } else {
-    input.placeholder = 'Ask about this screenshot… (Enter sends it)';
+    input.placeholder = recentTranscript()
+      ? 'Enter answers what was just asked, using this screenshot…'
+      : 'Ask about this screenshot… (Enter sends it)';
     input.focus();
   }
 }
@@ -662,14 +706,46 @@ function toBase64(arrayBuffer) {
 }
 
 /** One place every captured batch arrives, whichever node produced it. */
+/**
+ * RMS of the microphone alone.
+ *
+ * The recording carries the microphone and the system mix together, but this
+ * number must not: it drives the level meter, which answers "is my mic
+ * working", and the end-of-turn detector, which answers "have I stopped
+ * speaking". Neither question is about the other person. Feed the detector the
+ * mix instead and a call with music or a colleague talking never falls silent,
+ * so the turn never ends and the recording runs to the hard cap.
+ */
+function micLevel(chunk) {
+  if (micAnalyser && micBuf) {
+    micAnalyser.getFloatTimeDomainData(micBuf);
+    let sum = 0;
+    for (let i = 0; i < micBuf.length; i += 8) sum += micBuf[i] * micBuf[i];
+    return Math.sqrt(sum / Math.max(1, micBuf.length / 8));
+  }
+  let sum = 0;
+  for (let i = 0; i < chunk.length; i += 8) sum += chunk[i] * chunk[i];
+  return Math.sqrt(sum / Math.max(1, chunk.length / 8));
+}
+
 function onSamples(chunk) {
   if (!recording) return;
   pcmChunks.push(chunk);
   pcmLength += chunk.length;
 
-  let sum = 0;
-  for (let i = 0; i < chunk.length; i += 8) sum += chunk[i] * chunk[i];
-  const level = Math.sqrt(sum / Math.max(1, chunk.length / 8));
+  // The system meter is display only. It must never reach the turn detector:
+  // that decides when you have stopped speaking, and the other side of a call
+  // does not get a vote.
+  if (sysAnalyser && sysBuf) {
+    sysAnalyser.getFloatTimeDomainData(sysBuf);
+    let sysSum = 0;
+    for (let i = 0; i < sysBuf.length; i += 8) sysSum += sysBuf[i] * sysBuf[i];
+    const sysRms = Math.sqrt(sysSum / Math.max(1, sysBuf.length / 8));
+    if (sysRms > sysPeak) sysPeak = sysRms;
+    levelSysFill.style.width = `${Math.min(100, sysRms * 320)}%`;
+  }
+
+  const level = micLevel(chunk);
   levelFill.style.width = `${Math.min(100, level * 320)}%`;
   levelFill.style.background = level < 0.01 ? 'var(--bad)' : level > 0.6 ? 'var(--warn)' : 'var(--good)';
 
@@ -698,11 +774,24 @@ function onTurnEvent(event) {
  * A turn the detector closed on its own. Silence means a finished question, so
  * it goes; an open microphone nobody spoke into is thrown away rather than sent
  * as an empty request the user would still be charged for.
+ *
+ * The exception is the whole point of recording system audio. The detector only
+ * ever hears the microphone, so "no speech" means "you did not speak" — not
+ * "nothing was said". Sitting quietly while an interviewer asks a question is
+ * the normal case, and discarding on mic silence threw away exactly the
+ * recording that was wanted. When the system side carried something, it goes to
+ * the same analysis as any other clip, which still refuses to pay for an upload
+ * of silence.
  */
 function endTurn(event) {
-  if (event.reason === 'no-speech') {
+  if (event.reason === 'no-speech' && sysPeak < SYSTEM_AUDIO_FLOOR) {
     discardRecording();
     setStatus(vad.describeTurn(event));
+    return;
+  }
+  if (event.reason === 'no-speech') {
+    setStatus('You did not speak, but the call did — transcribing that.', 'recording');
+    stopRecording();
     return;
   }
   setStatus(vad.describeTurn(event), 'recording');
@@ -714,6 +803,71 @@ function endTurn(event) {
  * refuses the module — it falls back to the deprecated ScriptProcessor rather
  * than losing the microphone altogether, and says so in the console.
  */
+/**
+ * The system output mix, if the platform will give it to us. Main answers the
+ * getDisplayMedia request with `audio: 'loopback'`; no video is asked for or
+ * returned, so this starts no screen capture.
+ */
+async function getSystemAudio() {
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({ audio: true, video: false });
+    if (!stream.getAudioTracks().length) {
+      stream.getTracks().forEach((track) => track.stop());
+      return null;
+    }
+    return stream;
+  } catch (err) {
+    // Never fatal. Half a conversation is worth more than none, so this degrades
+    // to a microphone recording and says so rather than refusing to record.
+    setStatus(`System audio unavailable — recording the microphone only: ${err.message}`, 'error');
+    return null;
+  }
+}
+
+/**
+ * Microphone and system audio summed into one mono signal for the recording.
+ *
+ * Summing is what Web Audio does when two sources meet at one node, so there is
+ * no mixing code here — only the channel settings that make it mono, because
+ * the worklet reads input[0][0] and would otherwise transcribe the left half of
+ * a stereo system feed and nothing else.
+ */
+async function buildMixGraph() {
+  mixNode = audioCtx.createGain();
+  mixNode.channelCount = 1;
+  mixNode.channelCountMode = 'explicit';
+  mixNode.channelInterpretation = 'speakers';
+
+  micGain = audioCtx.createGain();
+  micGain.gain.value = 1;
+  srcNode.connect(micGain);
+  micGain.connect(mixNode);
+
+  micAnalyser = audioCtx.createAnalyser();
+  micAnalyser.fftSize = 2048;
+  micBuf = new Float32Array(micAnalyser.fftSize);
+  micGain.connect(micAnalyser);
+
+  if (!settings.captureSystemAudio) return;
+
+  sysStream = await getSystemAudio();
+  if (!sysStream) return;
+
+  sysNode = audioCtx.createMediaStreamSource(sysStream);
+  sysGain = audioCtx.createGain();
+  // Under unity on purpose: playback is usually louder than a voice a metre
+  // from the microphone, and the two are summed before being written as 16-bit
+  // samples, where the sum has nowhere left to go.
+  sysGain.gain.value = 0.7;
+  sysNode.connect(sysGain);
+  sysGain.connect(mixNode);
+
+  sysAnalyser = audioCtx.createAnalyser();
+  sysAnalyser.fftSize = 2048;
+  sysBuf = new Float32Array(sysAnalyser.fftSize);
+  sysGain.connect(sysAnalyser);
+}
+
 async function attachCapture() {
   try {
     await audioCtx.audioWorklet.addModule('audio-worklet.js');
@@ -721,7 +875,7 @@ async function attachCapture() {
       numberOfInputs: 1, numberOfOutputs: 0, processorOptions: { batchSize: 2048 }
     });
     captureNode.port.onmessage = (event) => onSamples(event.data);
-    srcNode.connect(captureNode);
+    mixNode.connect(captureNode);
     usingWorklet = true;
     return;
   } catch (err) {
@@ -733,7 +887,7 @@ async function attachCapture() {
   sinkNode = audioCtx.createGain();
   sinkNode.gain.value = 0;                  // keep the graph alive without playback
   procNode.onaudioprocess = (e) => onSamples(new Float32Array(e.inputBuffer.getChannelData(0)));
-  srcNode.connect(procNode);
+  mixNode.connect(procNode);
   procNode.connect(sinkNode);
   sinkNode.connect(audioCtx.destination);
 }
@@ -766,6 +920,10 @@ async function resumeMic() {
 
 async function startRecording() {
   if (recording || busy) return;
+  if (settings.forceStop) {
+    setStatus('Force stop is on — click it in the header to start listening again.');
+    return;
+  }
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -788,7 +946,9 @@ async function startRecording() {
   if (audioCtx.state === 'suspended') await audioCtx.resume();
 
   srcNode = audioCtx.createMediaStreamSource(micStream);
+  await buildMixGraph();
   pcmChunks = []; pcmLength = 0;
+  sysPeak = 0;
   await attachCapture();
 
   recording = true;
@@ -799,6 +959,7 @@ async function startRecording() {
 
   btnMic.classList.add('rec');
   levelBar.style.display = 'block';
+  levelSysBar.style.display = sysStream ? 'block' : 'none';
   voicebar.classList.add('show');
   voiceHint.textContent = turnDetector ? 'or just stop talking' : '';
   setStatus(listeningStatus(), 'recording');
@@ -811,6 +972,8 @@ function teardownAudio() {
   turnPhase = null;
   btnMic.classList.remove('rec');
   levelBar.style.display = 'none';
+  levelSysBar.style.display = 'none';
+  levelSysFill.style.width = '0%';
   levelFill.style.width = '0%';
   voicebar.classList.remove('show');
 
@@ -818,14 +981,19 @@ function teardownAudio() {
   // so the final fraction of a second is not lost.
   try { if (usingWorklet && captureNode) captureNode.port.postMessage('flush'); } catch { /* going away anyway */ }
 
-  for (const node of [captureNode, procNode, srcNode, sinkNode]) {
+  for (const node of [captureNode, procNode, srcNode, sinkNode, micGain, micAnalyser, sysNode, sysGain, sysAnalyser, mixNode]) {
     try { if (node) node.disconnect(); } catch { /* already torn down */ }
   }
   if (micStream) micStream.getTracks().forEach((t) => t.stop());
+  // A live loopback track holds a system audio capture open. Leaving it running
+  // after the recording ends is a recording nobody asked for.
+  if (sysStream) sysStream.getTracks().forEach((t) => t.stop());
 
   const rate = audioCtx ? audioCtx.sampleRate : dsp.TARGET_RATE;
   if (audioCtx) { audioCtx.close(); audioCtx = null; }
   micStream = null; captureNode = null; procNode = null; srcNode = null; sinkNode = null;
+  sysStream = null; sysNode = null; sysGain = null; micGain = null; mixNode = null;
+  micAnalyser = null; micBuf = null; sysAnalyser = null; sysBuf = null;
 
   let merged = null;
   if (pcmLength) {
@@ -876,6 +1044,13 @@ async function stopRecording() {
     setStatus('Transcribing…');
   }
 
+  // Last gate before the upload. Force stop can land while a clip is being
+  // prepared, and "stop transcribing" has to mean this one too.
+  if (settings.forceStop) {
+    setStatus('Force stop is on — that recording was discarded, not transcribed.');
+    return;
+  }
+
   const res = await api.transcribe(toBase64(clip.wav), {
     hasSpeech: analysis.speech,
     durationMs: Math.round(clip.durationMs),
@@ -898,6 +1073,10 @@ async function stopRecording() {
     return;
   }
 
+  // Remembered before the turn runs, so a screenshot taken straight afterwards
+  // can be answered against this question rather than described on its own.
+  lastTranscript = { text, at: Date.now() };
+
   // ask() attaches whatever is sitting in the composer, so a screenshot taken
   // while the mic was live goes up with this text — the point of allowing a
   // capture mid-recording in the first place.
@@ -906,7 +1085,7 @@ async function stopRecording() {
   // Continuous conversation reopens the microphone once the answer has landed,
   // so a follow-up is just more speech. Safe Mode outranks it: a privacy cover
   // that leaves the microphone running is not a privacy cover.
-  if (settings.continuousConversation && !document.body.classList.contains('safe-mode')) {
+  if (settings.continuousConversation && !settings.forceStop && !document.body.classList.contains('safe-mode')) {
     await startRecording();
   }
 }
@@ -1136,6 +1315,31 @@ async function setSafeMode(enabled) {
 // Settings
 // ---------------------------------------------------------------------------
 
+/**
+ * The kill switch, and the reason it shouts about itself. While it is on the
+ * app records nothing and transcribes nothing, which looks exactly like a
+ * feature that has broken — so the chip changes colour and wording rather than
+ * sitting there quietly doing nothing.
+ */
+function renderForceStop() {
+  const on = !!settings.forceStop;
+  fsChip.classList.toggle('stopped', on);
+  fsChip.querySelector('span').textContent = on ? 'Force stopped' : 'Listening';
+  fsChip.title = on
+    ? 'Force stop is ON — nothing is recorded or transcribed. Click to start listening again.'
+    : 'Force stop — pause all recording and transcription until you click again';
+}
+
+async function setForceStop(on) {
+  // Anything already in flight goes, and goes without being sent: turning this
+  // on is a request to stop now, not after the current clip has been uploaded.
+  if (on && recording) discardRecording();
+  await patch({ forceStop: on });
+  setStatus(on
+    ? 'Force stopped. Nothing is recorded or transcribed until you click it again.'
+    : 'Listening again.');
+}
+
 async function patch(p) {
   settings = await api.settings.set(p);
   syncHeader();
@@ -1143,6 +1347,7 @@ async function patch(p) {
 }
 
 function syncHeader() {
+  renderForceStop();
   btnAgents.textContent = settings.twoAgents ? '2 agents' : '1 agent';
   btnAgents.classList.toggle('on', !!settings.twoAgents);
   $('agent2-card').style.display = settings.twoAgents ? '' : 'none';
@@ -1228,6 +1433,7 @@ function applySettingsToForm() {
   $('set-two-agents').checked = !!settings.twoAgents;
   $('set-synthesis').checked = settings.synthesis !== false;
   $('set-voice-auto').checked = settings.voiceAuto !== false;
+  $('set-system-audio').checked = settings.captureSystemAudio !== false;
   $('set-continuous').checked = !!settings.continuousConversation;
   $('set-voice-silence').value = settings.voiceSilenceMs;
   showSilence(settings.voiceSilenceMs);
@@ -1242,6 +1448,7 @@ function applySettingsToForm() {
   $('set-hidden').checked = !!settings.launchHidden;
   refreshCapturePrivacy();
   refreshAppPrivacy();
+  $('set-hide-taskbar').checked = !!settings.hideFromTaskbar;
   syncHeader();
   refreshDisplayNote();
 }
@@ -1501,6 +1708,7 @@ function onSend() {
 
 btnSend.onclick = onSend;
 btnMic.onclick = toggleRecording;
+fsChip.onclick = () => setForceStop(!settings.forceStop);
 
 // The manual pair stays available whether or not the detector is on: no turn
 // detector is right every time, and being unable to say "I am done" is worse
@@ -1553,6 +1761,7 @@ $('set-synthesis').onchange = (e) => patch({ synthesis: e.target.checked });
 const showSilence = (ms) => { $('voice-silence-val').textContent = `${(Number(ms) / 1000).toFixed(1)}s`; };
 
 $('set-voice-auto').onchange = (e) => patch({ voiceAuto: e.target.checked });
+$('set-system-audio').onchange = (e) => patch({ captureSystemAudio: e.target.checked });
 $('set-continuous').onchange = (e) => patch({ continuousConversation: e.target.checked });
 $('set-voice-silence').oninput = (e) => showSilence(e.target.value);
 $('set-voice-silence').onchange = (e) => patch({ voiceSilenceMs: Number(e.target.value) });
@@ -1579,6 +1788,7 @@ $('set-opacity').onchange = (e) => patch({ opacity: Number(e.target.value) });
 $('set-ontop').onchange = (e) => patch({ alwaysOnTop: e.target.checked });
 $('set-hidden').onchange = (e) => patch({ launchHidden: e.target.checked });
 $('set-hide-app').onchange = (e) => setAppPrivacy(e.target.checked);
+$('set-hide-taskbar').onchange = (e) => patch({ hideFromTaskbar: e.target.checked });
 $('set-capture-privacy').onchange = (e) => setCapturePrivacy(e.target.checked);
 $('btn-open-capture-test').onclick = async () => {
   const status = await api.privacy.open();

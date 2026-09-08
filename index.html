@@ -83,6 +83,9 @@
     color: var(--warn); background: rgba(251,191,36,0.14); border-color: rgba(251,191,36,0.45);
   }
   .chip.mode.active i { animation: pulse 1.8s infinite ease-in-out; }
+  /* Force stop has to be unmissable: while it is on the app deliberately does
+     nothing, and a quiet kill switch is indistinguishable from a broken app. */
+  .chip.mode.stopped { background: rgba(239,68,68,0.20); border-color: rgba(239,68,68,0.60); color: #ffd9d9; }
 
   .icon-btn {
     -webkit-app-region: no-drag;
@@ -245,6 +248,11 @@
 
   #level { flex: 0 0 58px; height: 4px; border-radius: 4px; background: rgba(255,255,255,0.10); overflow: hidden; display: none; }
   #level > span { display: block; height: 100%; width: 0%; background: var(--good); transition: width .08s linear; }
+  /* A second meter for system audio. Without it, recording a call while saying
+     nothing yourself shows a flat mic meter and looks exactly like a feature
+     that is not working. */
+  #level-sys { flex: 0 0 58px; height: 4px; border-radius: 4px; background: rgba(255,255,255,0.10); overflow: hidden; display: none; }
+  #level-sys > span { display: block; height: 100%; width: 0%; background: var(--accent, #3b82f6); transition: width .08s linear; }
 
   .meter { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.10); overflow: hidden; }
   .meter > span { display: block; height: 100%; width: 0%; background: var(--good); transition: width .06s linear; }
@@ -409,6 +417,7 @@
     </div>
     <div class="spacer"></div>
     <div class="actions">
+      <button class="chip mode" id="btn-forcestop" title="Force stop — pause all recording and transcription until you click again"><i></i><span>Listening</span></button>
       <button class="chip mode" id="btn-presentation" title="Presentation Mode"><i></i><span>Presentation: off</span></button>
       <button class="chip" id="btn-agents" title="Toggle two-agent mode">1 agent</button>
       <button class="icon-btn" id="btn-export" title="Export conversation to Markdown" aria-label="Export">
@@ -446,7 +455,7 @@
   </div>
 
   <footer>
-    <div id="status"><span id="status-text">Ready.</span><div id="level"><span></span></div></div>
+    <div id="status"><span id="status-text">Ready.</span><div id="level" title="Your microphone"><span></span></div><div id="level-sys" title="System audio — the other side of the call"><span></span></div></div>
     <div id="voicebar">
       <button class="btn tiny" id="btn-voice-done" type="button">Done / Send</button>
       <button class="btn tiny" id="btn-voice-cancel" type="button">Cancel</button>
@@ -558,7 +567,7 @@
 
       <div class="field">
         <div class="switch">
-          <span>Suggest follow-up questions after each answer</span>
+          <span>Show the questions an interviewer is likely to ask next</span>
           <input type="checkbox" id="set-suggestions">
         </div>
         <div class="switch">
@@ -574,6 +583,19 @@
         <div class="field">
           <label for="set-mic-device">Microphone</label>
           <select id="set-mic-device"></select>
+        </div>
+
+        <div class="field">
+          <div class="switch">
+            <span>Also record system audio (the other side of a call)</span>
+            <input type="checkbox" id="set-system-audio">
+          </div>
+          <div class="help">
+            Records what comes out of your speakers alongside your microphone, so a meeting or
+            interview is transcribed in full rather than just your half. Windows only. The two are
+            mixed into one track, so the transcript has no speaker labels. Everyone whose voice
+            reaches your speakers is recorded — tell them.
+          </div>
         </div>
 
         <div class="field">
@@ -635,9 +657,9 @@
 
       <div class="field">
         <label for="prof-resume">Résumé</label>
-        <textarea id="prof-resume" spellcheck="false" placeholder="Paste your résumé as plain text. From a PDF or Word file: open it, select all, copy, paste here."></textarea>
+        <textarea id="prof-resume" spellcheck="false" placeholder="Import your résumé PDF with the button below, or paste it as plain text."></textarea>
         <div class="inline">
-          <button class="btn tiny" id="prof-import-resume" type="button">Import from .txt / .md…</button>
+          <button class="btn tiny" id="prof-import-resume" type="button">Import PDF or text…</button>
           <span class="badge" id="prof-resume-count"></span>
         </div>
       </div>
@@ -646,7 +668,7 @@
         <label for="prof-projects">Projects</label>
         <textarea id="prof-projects" spellcheck="false" placeholder="One block per project: what it does, your role, the stack, the hard part, the outcome. Numbers help — users, latency, scale."></textarea>
         <div class="inline">
-          <button class="btn tiny" id="prof-import-projects" type="button">Import from .txt / .md…</button>
+          <button class="btn tiny" id="prof-import-projects" type="button">Import PDF or text…</button>
           <span class="badge" id="prof-projects-count"></span>
         </div>
       </div>
@@ -733,6 +755,17 @@
           through supported Windows capture. This is not a guarantee: a phone pointed at the screen,
           some remote-desktop tools, and capture paths Windows does not cover will still see it.
           Test it before you rely on it.
+        </div>
+
+        <div class="switch">
+          <span>Also hide the taskbar button and alt-tab entry</span>
+          <input type="checkbox" id="set-hide-taskbar">
+        </div>
+        <div class="help">
+          The switch above keeps Nexora out of captures but not out of your taskbar, where the
+          button stays visible to anyone looking at your screen. This removes the button and the
+          alt-tab entry with it. The tray icon and the hotkeys are then how you get the window
+          back — learn one before you turn this on.
         </div>
 
         <div class="switch">

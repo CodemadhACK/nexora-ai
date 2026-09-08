@@ -26,6 +26,7 @@
       "capture-privacy-test.html",
       "capture-privacy-demo.js",
       "screen-capture-privacy.js",
+      "resume-pdf.js",
       "audio-dsp.js",
       "audio-worklet.js",
       "voice-turn.js",
@@ -82,7 +83,8 @@
     }
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.124.0"
+    "@anthropic-ai/sdk": "^0.124.0",
+    "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
     "electron": "^33.0.0",

@@ -1,0 +1,5 @@
+# The PDF test fixture is written uncompressed, so most of its bytes are ASCII
+# and git's auto-detection calls it text. Line-ending conversion would rewrite
+# the byte offsets its xref table points at, and the file would stop parsing on
+# any machine that checked it out.
+*.pdf binary

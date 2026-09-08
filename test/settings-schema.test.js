@@ -216,6 +216,24 @@ test('Screen Share Privacy is off until someone turns it on', () => {
     'an upgrade must never switch concealment on for someone');
 });
 
+test('force stop is off by default and survives a restart once set', () => {
+  // It is persisted deliberately: the user said "until I click it again", and a
+  // restart is not a click. A kill switch that forgets itself is worse than none.
+  assert.equal(DEFAULT_SETTINGS.forceStop, false);
+  assert.ok(SETTABLE.includes('forceStop'));
+  assert.equal(normaliseSettings({ forceStop: 'on' }).forceStop, true);
+  assert.equal(normaliseSettings({ forceStop: undefined }).forceStop, false);
+});
+
+test('hiding the taskbar button is off by default and is an ordinary preference', () => {
+  // Unlike the capture switch, this one has no state to reconcile -- it is a
+  // window property like always-on-top, so it travels the normal settings path.
+  assert.equal(DEFAULT_SETTINGS.hideFromTaskbar, false);
+  assert.ok(SETTABLE.includes('hideFromTaskbar'));
+  assert.equal(normaliseSettings({ hideFromTaskbar: 'yes' }).hideFromTaskbar, true);
+  assert.equal(normaliseSettings({}).hideFromTaskbar, false);
+});
+
 test('Screen Share Privacy cannot be flipped through settings:set', () => {
   assert.ok(!SETTABLE.includes('hideFromScreenShare'));
 });
@@ -224,6 +242,15 @@ test('a hand-edited hideFromScreenShare is coerced to a real boolean', () => {
   assert.equal(normaliseSettings({ hideFromScreenShare: 'yes' }).hideFromScreenShare, true);
   assert.equal(normaliseSettings({ hideFromScreenShare: 0 }).hideFromScreenShare, false);
   assert.equal(normaliseSettings({ hideFromScreenShare: null }).hideFromScreenShare, false);
+});
+
+test('system audio is recorded alongside the microphone by default', () => {
+  // A mic-only recording captures you and silence where everyone else was,
+  // which is the wrong half of a meeting.
+  assert.equal(DEFAULT_SETTINGS.captureSystemAudio, true);
+  assert.ok(SETTABLE.includes('captureSystemAudio'), 'it is an ordinary preference with no side effects');
+  assert.equal(normaliseSettings({ captureSystemAudio: 'no' }).captureSystemAudio, true);
+  assert.equal(normaliseSettings({ captureSystemAudio: 0 }).captureSystemAudio, false);
 });
 
 test('the renderer cannot reach window bounds or Safe Mode through settings:set', () => {

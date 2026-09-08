@@ -28,6 +28,11 @@ const DEFAULT_SETTINGS = {
   transcribeModel: 'gemini-3.5-transcribe',
   micDeviceId: null,          // null means whatever the OS calls the default
 
+  // Records the system output mix alongside the microphone, so the other half
+  // of a call is transcribed too. Mic-only recordings capture you and silence
+  // where everyone else was, which is the wrong half of a meeting.
+  captureSystemAudio: true,
+
   // Hands-free voice. voiceAuto ends a turn on silence so nobody has to reach
   // for Stop mid-thought; the manual button stays regardless, because no
   // detector is right every time. continuousConversation reopens the mic once
@@ -60,6 +65,17 @@ const DEFAULT_SETTINGS = {
   // live window -- so it travels on its own IPC channel, not a settings patch.
   hideFromScreenShare: false,
 
+  // Removes the taskbar button, and with it the alt-tab entry. Separate from
+  // the capture switch above because they hide the window from different
+  // audiences: one from a recording, this one from someone at your shoulder.
+  hideFromTaskbar: false,
+
+  // The kill switch. While this is on nothing is recorded and nothing is sent
+  // for transcription, and it stays on until it is turned off by hand -- a
+  // restart is not a click. Persisted for that reason: a control whose whole
+  // job is "stop listening" must not quietly forget itself.
+  forceStop: false,
+
   screenCapturePrivacy: false,
 
   lastDisplayId: null,
@@ -70,9 +86,9 @@ const DEFAULT_SETTINGS = {
 const SETTABLE = [
   'agents', 'twoAgents', 'synthesis', 'suggestions',
   'transcribeProvider', 'transcribeModel', 'micDeviceId',
-  'voiceAuto', 'voiceSilenceMs', 'continuousConversation',
+  'voiceAuto', 'voiceSilenceMs', 'continuousConversation', 'captureSystemAudio',
   'persona', 'historyLimit', 'opacity', 'alwaysOnTop', 'launchHidden',
-  'presentationShortcut', 'presentationAutoEnter',
+  'presentationShortcut', 'presentationAutoEnter', 'hideFromTaskbar', 'forceStop',
   'screenCapturePrivacy',
   'lastDisplayId', 'alwaysAskDisplay'
 ];
@@ -150,6 +166,7 @@ function normaliseSettings(input) {
   // its own kind of bug.
   merged.voiceSilenceMs = voice.normaliseVoiceOptions({ silenceMs: merged.voiceSilenceMs }).silenceMs;
   merged.voiceAuto = !!merged.voiceAuto;
+  merged.captureSystemAudio = !!merged.captureSystemAudio;
   merged.continuousConversation = !!merged.continuousConversation;
   if (typeof merged.persona !== 'string' || !merged.persona.trim()) {
     merged.persona = DEFAULT_SETTINGS.persona;
@@ -164,6 +181,8 @@ function normaliseSettings(input) {
   merged.presentationAutoEnter = !!merged.presentationAutoEnter;
   merged.presentationBounds = normaliseBounds(merged.presentationBounds);
   merged.hideFromScreenShare = !!merged.hideFromScreenShare;
+  merged.hideFromTaskbar = !!merged.hideFromTaskbar;
+  merged.forceStop = !!merged.forceStop;
 
   return merged;
 }

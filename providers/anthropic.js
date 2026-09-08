@@ -41,8 +41,25 @@ const TRANSCRIBE_MODELS = [];
 const MAX_TOKENS_STREAM = 64000;
 const MAX_TOKENS_COMPLETE = 16000;
 
-// Models that reject temperature/top_p/top_k outright.
+// Models that reject temperature/top_p/top_k outright. The same models are the
+// ones that take `effort`, which is not a coincidence: on current Claude models
+// effort is the knob temperature used to be. Haiku is the other way round --
+// it takes a temperature and errors on effort -- so both lists are needed.
 const NO_SAMPLING = new Set(['claude-opus-5', 'claude-sonnet-5', 'claude-fable-5-1']);
+const SUPPORTS_EFFORT = NO_SAMPLING;
+
+/**
+ * How hard to think, by what the call is for. The solver's answer is the
+ * product, so it gets the good setting; the short auxiliary calls get the cheap
+ * one, where extra thoroughness buys nothing and the latency is felt. Effort is
+ * the single biggest quality-vs-cost lever on these models, and leaving it at
+ * the default meant paying solver-grade thinking to write four follow-up chips.
+ */
+const EFFORT_BY_INTENT = {
+  solve: 'high',
+  synthesis: 'medium',
+  suggestions: 'low'
+};
 
 // Server-side fallbacks: on a policy decline the API re-runs the same request
 // on another model within the same call instead of handing back nothing.
@@ -144,13 +161,25 @@ function makeClient(apiKey, fetchImpl) {
   return new Anthropic(options);
 }
 
-function buildParams({ model, system, messages, temperature, maxTokens }) {
+function buildParams({ model, system, messages, temperature, maxTokens, intent = 'solve' }) {
   const params = {
     model,
     max_tokens: maxTokens,
     messages: toMessages(messages)
   };
-  if (system) params.system = system;
+  if (system) {
+    // Cached, because it is the stable half of every request. Persona, profile,
+    // house style and formatting rules run to hundreds of lines and do not
+    // change between turns, while the messages after them grow every turn.
+    // Caching reads that prefix back at a fraction of the price and shortens
+    // time-to-first-token, which in the middle of an interview is not a cost
+    // question but a usability one. Too short a prefix simply will not cache;
+    // that is a miss, not an error.
+    params.system = [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }];
+  }
+  if (SUPPORTS_EFFORT.has(model)) {
+    params.output_config = { effort: EFFORT_BY_INTENT[intent] || EFFORT_BY_INTENT.solve };
+  }
   if (Number.isFinite(temperature) && acceptsTemperature(model)) {
     params.temperature = Number(temperature);
   }
@@ -163,6 +192,21 @@ function buildParams({ model, system, messages, temperature, maxTokens }) {
 
 /** The beta endpoint only where a beta parameter is actually being sent. */
 const endpoint = (client, model) => (usesFallbacks(model) ? client.beta.messages : client.messages);
+
+/**
+ * The numbers that answer "is the cache actually working". A `cacheRead` that
+ * stays at zero across turns of one conversation means something ahead of the
+ * breakpoint is changing between requests, which is the usual way caching is
+ * switched on and quietly does nothing.
+ */
+function summariseUsage(usage) {
+  return {
+    input: usage.input_tokens || 0,
+    output: usage.output_tokens || 0,
+    cacheRead: usage.cache_read_input_tokens || 0,
+    cacheWrite: usage.cache_creation_input_tokens || 0
+  };
+}
 
 function textOfMessage(message) {
   return ((message && message.content) || [])
@@ -177,11 +221,11 @@ function textOfMessage(message) {
 
 async function stream({
   apiKey, model, system, messages, temperature,
-  signal, onDelta, onStatus, fetchImpl
+  signal, onDelta, onStatus, onUsage, intent, fetchImpl
 }) {
   requireKey(apiKey);
   const client = makeClient(apiKey, fetchImpl);
-  const params = buildParams({ model, system, messages, temperature, maxTokens: MAX_TOKENS_STREAM });
+  const params = buildParams({ model, system, messages, temperature, intent, maxTokens: MAX_TOKENS_STREAM });
 
   let full = '';
   try {
@@ -203,6 +247,10 @@ async function stream({
     if (onStatus && final.model && final.model !== model) {
       onStatus(`${model} declined — answered by ${final.model}.`);
     }
+
+    // Reported rather than assumed. Caching either works or silently does not,
+    // and the only way to tell the difference is to look at what came back.
+    if (onUsage && final.usage) onUsage(summariseUsage(final.usage));
   } catch (err) {
     if (isAbort(err)) return { text: full, aborted: true };
     throw toProviderError(err, model);
@@ -211,10 +259,10 @@ async function stream({
   return { text: full, aborted: false };
 }
 
-async function complete({ apiKey, model, system, messages, temperature, signal, fetchImpl }) {
+async function complete({ apiKey, model, system, messages, temperature, signal, onUsage, intent, fetchImpl }) {
   requireKey(apiKey);
   const client = makeClient(apiKey, fetchImpl);
-  const params = buildParams({ model, system, messages, temperature, maxTokens: MAX_TOKENS_COMPLETE });
+  const params = buildParams({ model, system, messages, temperature, intent, maxTokens: MAX_TOKENS_COMPLETE });
 
   let message;
   try {
@@ -224,6 +272,7 @@ async function complete({ apiKey, model, system, messages, temperature, signal, 
   }
 
   if (message.stop_reason === 'refusal') throw refusalError(message);
+  if (onUsage && message.usage) onUsage(summariseUsage(message.usage));
   return textOfMessage(message).trim();
 }
 
@@ -257,5 +306,5 @@ module.exports = {
   supports: { streaming: true, vision: true, transcription: false, temperature: false },
   stream, complete, transcribe,
   // exported for tests
-  _internals: { toMessages, buildParams, toProviderError, acceptsTemperature, usesFallbacks, textOfMessage }
+  _internals: { toMessages, buildParams, toProviderError, acceptsTemperature, usesFallbacks, textOfMessage, summariseUsage, EFFORT_BY_INTENT }
 };

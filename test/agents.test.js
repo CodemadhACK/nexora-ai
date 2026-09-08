@@ -61,11 +61,21 @@ test('a single agent answers, and no second pane or comparison is produced', asy
   assert.ok(!events.some((e) => e.type === 'synthesis'));
 });
 
+/**
+ * Parallelism is asserted by ordering rather than by the clock. This used to
+ * allow two 60ms agents 110ms of wall time, which is 50ms of headroom — and
+ * `node --test` runs the files concurrently, so on a loaded machine it failed
+ * perhaps one run in three. What actually distinguishes parallel from
+ * sequential is whether the second agent starts before the first has finished,
+ * and that is a fact about order, not about speed.
+ */
 test('two agents run concurrently, not one after the other', async (t) => {
   const started = [];
+  const finished = [];
   const startOne = (id) => async () => {
-    started.push({ id, at: Date.now() });
-    await delay(60);
+    started.push({ id, finishedSoFar: finished.length });
+    await delay(20);
+    finished.push(id);
     return { text: `${id} answer`, aborted: false };
   };
 
@@ -74,16 +84,14 @@ test('two agents run concurrently, not one after the other', async (t) => {
     openai: { stream: startOne('openai') }
   });
 
-  const began = Date.now();
   const result = await runner().run({
     requestId: 'r2', messages: MESSAGES, agents: [AGENT_1, AGENT_2],
     wantSynthesis: false, wantSuggestions: false, onEvent: () => {}
   });
-  const elapsed = Date.now() - began;
 
   assert.equal(started.length, 2);
-  assert.ok(Math.abs(started[0].at - started[1].at) < 25, 'both agents should start in the same tick');
-  assert.ok(elapsed < 110, `two 60ms agents run in parallel should finish well under 120ms, took ${elapsed}ms`);
+  assert.deepEqual(started.map((s) => s.finishedSoFar), [0, 0],
+    'the second agent must start while the first is still running; run one after the other, it would see a finished one');
   assert.equal(result.answers[1].text, 'gemini answer');
   assert.equal(result.answers[2].text, 'openai answer');
 });

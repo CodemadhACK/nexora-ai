@@ -11,7 +11,7 @@
 
 const {
   app, BrowserWindow, globalShortcut, ipcMain, safeStorage,
-  desktopCapturer, screen, Tray, Menu, shell, nativeImage, dialog
+  desktopCapturer, screen, Tray, Menu, shell, nativeImage, dialog, session
 } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -30,6 +30,7 @@ const { createAgentRunner } = require('./agents');
 const providers = require('./providers');
 const { DEFAULT_SETTINGS, SETTABLE, normaliseSettings, readSettings } = require('./settings-schema');
 const { createScreenCapturePrivacy } = require('./screen-capture-privacy');
+const { extractResumeText } = require('./resume-pdf');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -232,7 +233,7 @@ function buildPresentationMode() {
       const win = liveWindow();
       if (!win) return createWindow();
 
-      win.setSkipTaskbar(false);
+      applyTaskbarVisibility();
 
       // A monitor may have been unplugged while we were hidden; restoring to a
       // rectangle that no longer exists would put the window out of reach.
@@ -313,6 +314,21 @@ function scheduleBoundsSave() {
   boundsTimer = setTimeout(persistBounds, 400);
 }
 
+/**
+ * Whether the window shows a taskbar button, decided in one place.
+ *
+ * Three call sites used to set this to false outright -- leaving Presentation
+ * Mode, summoning the window with the hotkey, and creating it -- so any of them
+ * would have quietly undone the preference the first time the window came back.
+ * On Windows this covers alt-tab too: skipping the taskbar means the tool-window
+ * style, and that is not in the alt-tab list either.
+ */
+function applyTaskbarVisibility() {
+  const win = liveWindow();
+  if (!win) return;
+  win.setSkipTaskbar(!!settings.hideFromTaskbar);
+}
+
 function createWindow() {
   const saved = settings.bounds;
   const options = {
@@ -328,7 +344,7 @@ function createWindow() {
     alwaysOnTop: settings.alwaysOnTop,
     // Visible in the taskbar and alt-tab by design — Presentation Mode is the
     // one thing that takes it out, and only while it is on.
-    skipTaskbar: !!settings.presentationMode,
+    skipTaskbar: !!settings.presentationMode || !!settings.hideFromTaskbar,
     backgroundColor: '#00000000',
     show: false,
     title: 'Nexora AI',
@@ -396,6 +412,27 @@ function createWindow() {
 
 // The window itself, not its HWND: content protection is applied by Electron
 // from inside this process, which is the only way Windows permits it at all.
+/**
+ * Lets the renderer ask Windows for the system output mix.
+ *
+ * getDisplayMedia is refused outright in Electron unless a handler answers it,
+ * and `audio: 'loopback'` is what turns that request into the speaker mix
+ * rather than a screen. No video is requested and none is returned, so nothing
+ * here starts a screen capture: this grants sound, not pictures.
+ *
+ * Windows only. On macOS the same request needs a virtual audio device that we
+ * do not ship, and answering it there would hand back a stream that is silent
+ * forever, which is worse than refusing.
+ */
+function registerSystemAudio() {
+  if (process.platform !== 'win32') return;
+  if (typeof session.defaultSession.setDisplayMediaRequestHandler !== 'function') return;
+
+  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+    callback({ audio: 'loopback' });
+  }, { useSystemPicker: false });
+}
+
 /**
  * Screen Share Privacy for Nexora's own window.
  *
@@ -544,7 +581,7 @@ function toggleWindow() {
 function showAssistant() {
   const win = liveWindow();
   if (!win) return createWindow();
-  win.setSkipTaskbar(false);
+  applyTaskbarVisibility();
   win.show();
   win.focus();
 }
@@ -705,6 +742,7 @@ function registerIpc() {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.setOpacity(Number(settings.opacity) || 1);
       mainWindow.setAlwaysOnTop(settings.alwaysOnTop, 'screen-saver');
+      applyTaskbarVisibility();
     }
     saveSettings();
     buildTrayMenu();
@@ -727,9 +765,11 @@ function registerIpc() {
 
   ipcMain.handle('profile:import', async (_e, field) => {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-      title: 'Import text',
+      title: 'Import a résumé or notes',
       properties: ['openFile'],
       filters: [
+        { name: 'Résumé or notes', extensions: ['pdf', 'txt', 'md', 'markdown', 'json', 'csv'] },
+        { name: 'PDF', extensions: ['pdf'] },
         { name: 'Text', extensions: ['txt', 'md', 'markdown', 'json', 'csv'] },
         { name: 'All files', extensions: ['*'] }
       ]
@@ -740,12 +780,29 @@ function registerIpc() {
       if (fs.statSync(filePaths[0]).size > 2 * 1024 * 1024) {
         return { ok: false, error: 'That file is over 2 MB — paste the relevant part instead.' };
       }
+      // A PDF has no text to read straight off disk; its text layer has to be
+      // pulled out. It is also the one document every candidate already has, so
+      // refusing it and asking them to copy-paste was the wrong trade.
+      if (path.extname(filePaths[0]).toLowerCase() === '.pdf') {
+        const extracted = await extractResumeText(
+          new Uint8Array(fs.readFileSync(filePaths[0])),
+          { limit: PROFILE_CHAR_LIMIT }
+        );
+        return {
+          ok: true,
+          field,
+          text: extracted.text,
+          name: path.basename(filePaths[0]),
+          pages: extracted.pages
+        };
+      }
+
       let text = fs.readFileSync(filePaths[0], 'utf8');
       // Reject binary-looking input (a .docx or .pdf renamed, say).
       if (/[\u0000-\u0008\u000E-\u001F]/.test(text.slice(0, 4000))) {
         return {
           ok: false,
-          error: 'That looks like a binary file. Open the PDF or Word document, select all, and paste the text in directly.'
+          error: 'That looks like a binary file. PDFs are read directly — for a Word document, save it as a PDF first, or paste the text in.'
         };
       }
       text = text.replace(/\r\n/g, '\n').trim().slice(0, PROFILE_CHAR_LIMIT);
@@ -1009,6 +1066,7 @@ if (!app.requestSingleInstanceLock()) {
     presentation = buildPresentationMode();
     hotkeyManager = createHotkeyManager(globalShortcut, warn);
 
+    registerSystemAudio();
     registerIpc();
     createWindow();
     createTray();

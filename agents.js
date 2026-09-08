@@ -26,6 +26,17 @@ const IMAGE_BUDGET = 1;
 function createAgentRunner({ readKey, log = () => {} } = {}) {
   const running = new Map();   // requestId -> AbortController
 
+  /**
+   * Token accounting, when a provider reports it. Written to the log rather
+   * than the window because it is a developer's number, but it is the only way
+   * to tell a working prompt cache from one that is quietly missing every turn.
+   */
+  const reportUsage = (label) => (usage) => {
+    if (!usage) return;
+    const cached = usage.cacheRead ? ` (${usage.cacheRead} from cache)` : '';
+    log(`${label}: ${usage.input} in${cached}, ${usage.output} out`);
+  };
+
   function stop(requestId) {
     const controller = running.get(requestId);
     if (!controller) return false;
@@ -57,6 +68,8 @@ function createAgentRunner({ readKey, log = () => {} } = {}) {
         system,
         messages,
         temperature: agent.temperature,
+        intent: 'solve',
+        onUsage: reportUsage(`agent ${slot} (${provider.id}/${agent.model})`),
         signal,
         onStatus: (statusText) => emit({ state: 'status', text: statusText }),
         onDelta: (delta) => {
@@ -92,6 +105,8 @@ function createAgentRunner({ readKey, log = () => {} } = {}) {
         system: prompts.SYNTHESIS_SYSTEM,
         messages: prompts.buildSynthesisMessages({ question, first, second }),
         temperature: agent.temperature,
+        intent: 'synthesis',
+        onUsage: reportUsage('synthesis'),
         signal,
         onDelta: (delta) => {
           if (!started) { started = true; emit({ state: 'streaming' }); }
@@ -123,6 +138,8 @@ function createAgentRunner({ readKey, log = () => {} } = {}) {
         system: prompts.SUGGESTIONS_SYSTEM,
         messages: prompts.buildSuggestionMessages({ question, answer }),
         temperature: 0.6,
+        intent: 'suggestions',
+        onUsage: reportUsage('suggestions'),
         signal
       });
       const items = prompts.parseSuggestions(raw);
