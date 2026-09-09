@@ -260,6 +260,20 @@ test('a screenshot sent with nothing typed answers what was just heard', () => {
     'the bare screen-describing prompt must not remain in ask()');
 });
 
+/**
+ * The speculative transcription is only safe because resumed speech throws it
+ * away. Without that, a pause mid-sentence would send half a question and the
+ * answer would be to something the user never finished asking.
+ */
+test('a speculative transcription is discarded the moment speech resumes', () => {
+  const renderer = fs.readFileSync(path.join(ROOT, 'renderer.js'), 'utf8');
+  const body = functionBody(renderer, 'function onTurnEvent(');
+
+  assert.match(body, /speculateTranscript\(/, 'a pause should start transcribing early');
+  assert.match(body, /'speech'[\s\S]*speculation = null/,
+    'resumed speech must clear the speculation before it can be used');
+});
+
 test('force stop blocks recording and transcription, not just one of them', () => {
   const renderer = fs.readFileSync(path.join(ROOT, 'renderer.js'), 'utf8');
 

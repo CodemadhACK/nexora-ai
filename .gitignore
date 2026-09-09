@@ -44,3 +44,9 @@ yarn-error.log*
 *.key
 gemini.key*
 secrets.json
+
+# Eval runs — the traces are answers generated from the user's real resume
+# (employer, projects, first-person stories). The harness and the cases are
+# committed; what a run produces is personal and stays local.
+.claude/hillclimb/
+evals/__pycache__/

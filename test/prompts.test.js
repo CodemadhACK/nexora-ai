@@ -55,6 +55,30 @@ test('a behavioural answer leads with words to say, not coaching about saying th
   assert.match(prompts.HOUSE_STYLE, /words to say, never coaching/i);
 });
 
+/**
+ * Reciting a textbook answer and having actually shipped the thing are different
+ * interviews. This section is where the second one shows - so it draws only from
+ * the profile, and says nothing rather than inventing a project, because a made-up
+ * example dies the moment the interviewer asks a second question about it.
+ */
+test('technical answers close by grounding the concept in real experience', () => {
+  for (const kind of ['coding', 'system-design', 'conceptual', 'debugging']) {
+    const format = prompts.FORMATS[kind];
+    assert.ok(format.includes('### From your experience'), `${kind} should ground the answer`);
+
+    const section = format.slice(format.indexOf('### From your experience'));
+    assert.match(section, /Never invent/i, `${kind} must forbid inventing a project`);
+    assert.match(section, /profile/i, `${kind} must source it from the profile`);
+  }
+});
+
+test('small talk and STAR stories do not get an experience section', () => {
+  // A greeting has nothing to ground, and a behavioural answer is already built
+  // from the profile end to end - a second section would just repeat it.
+  assert.ok(!prompts.FORMATS.chat.includes('### From your experience'));
+  assert.ok(!prompts.FORMATS.behavioural.includes('### From your experience'));
+});
+
 test('conceptual questions are told explicitly not to borrow the coding format', () => {
   assert.match(prompts.FORMATS.conceptual, /do NOT use the coding headings/i);
   assert.ok(!prompts.FORMATS.conceptual.includes('### Code'));

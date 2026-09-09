@@ -1,0 +1,196 @@
+{
+  "_comment": [
+    "Eval cases for the answer flow. Every case tagged 'regression' is a real",
+    "failure that was observed in use and then fixed - those are the ones that",
+    "must never come back. The rest cover the question kinds the router has to",
+    "tell apart.",
+    "",
+    "checks are programmatic and free. rubric is what the judge is asked.",
+    "audio:true means the case is also spoken by Windows TTS and transcribed",
+    "through the real provider path first, so the transcript - not the clean",
+    "text - is what the answer is generated from."
+  ],
+  "cases": [
+    {
+      "id": "chat-greeting",
+      "tags": [
+        "chat",
+        "regression"
+      ],
+      "prompt": "hello hello hello",
+      "audio": true,
+      "checks": {
+        "max_headings": 0,
+        "max_chars": 400
+      },
+      "rubric": "A greeting. A good answer is one or two sentences acknowledging it and nothing else. It must not explain anything, offer a template, or list what it can do."
+    },
+    {
+      "id": "chat-fragment",
+      "tags": [
+        "chat",
+        "regression"
+      ],
+      "prompt": "and then the the uh when we",
+      "audio": true,
+      "checks": {
+        "max_headings": 0,
+        "max_chars": 400,
+        "must_match": "(?i)(repeat|again|full question|incomplete|fragment|did not catch|catch that)"
+      },
+      "rubric": "A garbled fragment of speech, not a question. A good answer says it did not come through and asks for it again. Inventing a plausible question and answering it is a failure, however fluent."
+    },
+    {
+      "id": "intro-self",
+      "tags": [
+        "intro",
+        "regression"
+      ],
+      "prompt": "Before starting the coding questions, can you quickly introduce yourself?",
+      "audio": true,
+      "checks": {
+        "must_not_match": "(?i)(i am an ai|i'm an ai|as an ai|i am nexora|i'm nexora|i am an assistant|i'm an assistant|i am a language model|i'm a language model)"
+      },
+      "rubric": "The interviewer is asking the CANDIDATE to introduce themselves. A good answer is the candidate speaking in the first person, built from their profile. Any answer where the assistant describes itself, or names itself, is a total failure regardless of how well written it is."
+    },
+    {
+      "id": "behav-project-failed",
+      "tags": [
+        "behavioural",
+        "regression"
+      ],
+      "prompt": "Tell me about a time a project of yours went wrong and what you did about it.",
+      "checks": {
+        "first_heading": "Say this",
+        "must_not_match": "(?i)(speak for about|two minutes|avoid finger-pointing|what to emphasi[sz]e|avoid blaming)",
+        "no_followup_section": true
+      },
+      "rubric": "A good answer opens with words the candidate can read aloud - a specific story in the first person, past tense. Delivery coaching ('speak for two minutes', 'take accountability') is a failure: the person is already talking."
+    },
+    {
+      "id": "behav-disagreement",
+      "tags": [
+        "behavioural"
+      ],
+      "prompt": "Tell me about a time you disagreed with a colleague on a technical decision.",
+      "checks": {
+        "first_heading": "Say this",
+        "must_match": "(?i)situation",
+        "no_followup_section": true
+      },
+      "rubric": "A specific first-person story with a situation, what they owned, what they did and how it ended. Generic advice about handling disagreement, with no story, is a failure."
+    },
+    {
+      "id": "coding-two-sum",
+      "tags": [
+        "coding"
+      ],
+      "prompt": "Given an array of integers and a target, return the indices of the two numbers that add up to the target.",
+      "audio": true,
+      "checks": {
+        "first_heading": "Ask first",
+        "must_contain_headings": [
+          "Interview explanation",
+          "Code",
+          "Complexity",
+          "From your experience"
+        ],
+        "must_have_code_block": true,
+        "no_followup_section": true
+      },
+      "rubric": "Grade the substance: is the approach correct and optimal (a hash map in one pass), does the code actually run as written, and is the stated complexity right? A fluent explanation of a wrong or brute-force-only solution is a failure. The closing section must tie this to something real from the candidate's profile, or say plainly that nothing there relates - an invented project is a total failure."
+    },
+    {
+      "id": "coding-reverse-list",
+      "tags": [
+        "coding"
+      ],
+      "prompt": "Reverse a singly linked list in place and give the time and space complexity.",
+      "checks": {
+        "first_heading": "Ask first",
+        "must_contain_headings": [
+          "Code",
+          "Complexity"
+        ],
+        "must_have_code_block": true,
+        "no_followup_section": true
+      },
+      "rubric": "Correctness first: the pointer rewiring must be right, in place, O(n) time and O(1) space. Check the code compiles mentally - a lost head pointer or a dropped node is a failure."
+    },
+    {
+      "id": "design-url-shortener",
+      "tags": [
+        "system-design"
+      ],
+      "prompt": "Design a URL shortener that has to serve a hundred million links.",
+      "checks": {
+        "first_heading": "Ask first",
+        "must_contain_headings": [
+          "Requirements",
+          "Scaling",
+          "From your experience"
+        ],
+        "no_followup_section": true
+      },
+      "rubric": "A good answer scopes before designing, states the numbers it is assuming, and its scaling story follows from those numbers. Naming components with no traffic estimate behind them is a weak answer. The closing section must tie this to something real from the candidate's profile, or say plainly that nothing there relates - an invented project is a total failure."
+    },
+    {
+      "id": "conceptual-deadlock",
+      "tags": [
+        "conceptual"
+      ],
+      "prompt": "What is a deadlock and how do you avoid one?",
+      "checks": {
+        "first_heading": "Interview explanation",
+        "forbid_heading": "Ask first",
+        "no_followup_section": true,
+        "must_contain_headings": [
+          "From your experience"
+        ]
+      },
+      "rubric": "A direct, correct explanation - the four conditions, and how breaking one of them avoids it. It must answer rather than ask: a question this specific needs no clarifying questions, and opening with them would waste the interviewer's time. The closing section must tie this to something real from the candidate's profile, or say plainly that nothing there relates - an invented project is a total failure."
+    },
+    {
+      "id": "debug-stack-trace",
+      "tags": [
+        "debugging"
+      ],
+      "prompt": "My Python service throws 'RecursionError: maximum recursion depth exceeded' when I call parse_tree on a deeply nested document. What is wrong and how do I fix it?",
+      "checks": {
+        "first_heading": "Ask first",
+        "must_contain_headings": [
+          "Why this happens",
+          "Fix",
+          "From your experience"
+        ],
+        "no_followup_section": true
+      },
+      "rubric": "A good answer names the cause (unbounded recursion depth against CPython's limit) rather than restating the error, and the fix is a real one - an iterative rewrite or an explicit stack - not just raising the recursion limit and hoping. The closing section must tie this to something real from the candidate's profile, or say plainly that nothing there relates - an invented project is a total failure."
+    },
+    {
+      "id": "conceptual-index",
+      "tags": [
+        "conceptual"
+      ],
+      "prompt": "Why is a database index fast, and when does adding one make things worse?",
+      "checks": {
+        "first_heading": "Interview explanation",
+        "forbid_heading": "Ask first",
+        "no_followup_section": true
+      },
+      "rubric": "Must cover both halves of the question: why lookups get faster (the tree, fewer pages read) and the real cost (slower writes, more storage, an index the planner ignores). Answering only the first half is a partial answer."
+    },
+    {
+      "id": "chat-small-question",
+      "tags": [
+        "chat"
+      ],
+      "prompt": "quick one - is Python's GIL still a thing in 3.13?",
+      "checks": {
+        "max_headings": 0,
+        "max_chars": 700
+      },
+      "rubric": "A small factual question deserves a couple of sentences, not a template. It should mention that 3.13 ships an optional free-threaded build while the default still has the GIL. Length matters here as much as accuracy."
+    }
+  ]
+}

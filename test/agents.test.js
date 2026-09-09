@@ -184,6 +184,16 @@ test('a missing key is reported as an instruction, and flagged for the UI', asyn
   assert.match(failure.error, /Add one in Settings/);
 });
 
+/** Polls until `get()` returns something truthy, so a post-return event can be awaited. */
+async function until(get, tries = 100) {
+  for (let i = 0; i < tries; i++) {
+    const value = get();
+    if (value) return value;
+    await delay(5);
+  }
+  throw new Error('timed out waiting for the event');
+}
+
 test('suggestions do not wait for agent 2', async (t) => {
   const timeline = [];
   stubProviders(t, {
@@ -200,12 +210,18 @@ test('suggestions do not wait for agent 2', async (t) => {
     wantSynthesis: false, onEvent
   });
 
-  assert.deepEqual(result.suggestions, ['Explain the invariant']);
+  // The turn ends when the answer does. Chips are worth having but they are not
+  // worth holding the microphone hostage for, so they arrive on the event stream
+  // after the fact rather than in the result.
+  assert.deepEqual(result.suggestions, [], 'the turn must not carry, or wait for, the chips');
+
   assert.ok(
     timeline.indexOf('suggestions-start') < timeline.indexOf('agent2-done'),
     `suggestions should start before the slower agent finishes: ${timeline.join(' → ')}`
   );
-  assert.deepEqual(events.find((e) => e.type === 'suggestions').items, ['Explain the invariant']);
+
+  const delivered = await until(() => events.find((e) => e.type === 'suggestions'));
+  assert.deepEqual(delivered.items, ['Explain the invariant']);
 });
 
 test('suggestions use the provider its cheapest model, not the answering model', async (t) => {

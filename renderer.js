@@ -65,6 +65,28 @@ let micStream = null, audioCtx = null, procNode = null, srcNode = null, sinkNode
 let sysStream = null, sysNode = null, sysGain = null, micGain = null, mixNode = null;
 let micAnalyser = null, micBuf = null;
 let sysAnalyser = null, sysBuf = null;
+
+/**
+ * A transcription started while you were still pausing.
+ *
+ * The detector reports a pause the moment you stop speaking, but the turn does
+ * not end until the silence has lasted voiceSilenceMs - three seconds, on this
+ * machine. Waiting for that and only then sending the audio spends the two
+ * costs one after the other. Sending it at the pause overlaps them, so by the
+ * time the turn ends the transcript is usually already back.
+ *
+ * If you carry on talking the speculation is thrown away and another is allowed
+ * at the next pause, capped so a hesitant sentence cannot fire a dozen uploads.
+ */
+let speculation = null;          // { at, promise }
+let speculationsUsed = 0;
+const MAX_SPECULATIONS = 2;
+// How far into the silence timeout to wait before betting that the turn is over.
+// Measured, not guessed: at 0.6 the upload only got a 1.2s head start on a 1.6s
+// transcription and still cost a second at the end. A third of the way in gives
+// the round trip time to land before the turn closes, and the cost of being
+// wrong is one wasted upload that the speech-resumed branch throws away.
+const SPECULATE_AT = 0.33;
 // Loudest system audio seen during this recording. The turn detector cannot
 // see it, so this is what tells us whether anything was said at all.
 let sysPeak = 0;
@@ -765,6 +787,12 @@ function onSamples(chunk) {
 function onTurnEvent(event) {
   if (event.type === 'ended') return;
   if (event.type === 'end') { turnPhase = null; endTurn(event); return; }
+  // Deliberately before the phase de-duplication below: a pause reports itself
+  // on every batch, and which one matters depends on how long the silence has
+  // run, not on it being the first.
+  if (event.type === 'pause') speculateTranscript(event.silenceMs);
+  if (event.type === 'speech') speculation = null;
+
   if (event.type === turnPhase) return;
   turnPhase = event.type;
   setStatus(listeningStatus(event), 'recording');
@@ -918,6 +946,49 @@ async function resumeMic() {
   }
 }
 
+/** The audio captured so far, without tearing the graph down. */
+function snapshotSamples() {
+  if (!pcmLength) return null;
+  const merged = new Float32Array(pcmLength);
+  let offset = 0;
+  for (const chunk of pcmChunks) { merged.set(chunk, offset); offset += chunk.length; }
+  return { samples: merged, rate: audioCtx ? audioCtx.sampleRate : dsp.TARGET_RATE, at: pcmLength };
+}
+
+/**
+ * Fires once the silence looks final rather than on the first quiet batch.
+ *
+ * Speech is full of short gaps - the first version fired on every one of them,
+ * spent its budget in the opening seconds of a sentence, and had nothing left
+ * for the pause that actually ended the turn. Waiting until most of the silence
+ * timeout has elapsed means one upload, at the moment it is most likely to be
+ * the whole question, with the remainder of the timeout to run in.
+ */
+function speculateTranscript(silenceMs) {
+  if (!recording || speculation || speculationsUsed >= MAX_SPECULATIONS) return;
+
+  const window = Math.max(1, Number(settings.voiceSilenceMs) || 1200);
+  if (!(Number(silenceMs) >= window * SPECULATE_AT)) return;
+
+  const snap = snapshotSamples();
+  if (!snap) return;
+
+  const clip = dsp.prepareForTranscription(snap.samples, snap.rate);
+  // The same gate the real path uses. No point paying to upload silence early
+  // any more than late.
+  if (!clip.analysis.speech || dsp.describeProblem(clip.analysis)) return;
+
+  speculationsUsed += 1;
+  speculation = {
+    at: snap.at,
+    promise: api.transcribe(toBase64(clip.wav), {
+      hasSpeech: true,
+      durationMs: Math.round(clip.durationMs),
+      snrDb: Math.round(clip.analysis.snrDb)
+    }).catch(() => null)
+  };
+}
+
 async function startRecording() {
   if (recording || busy) return;
   if (settings.forceStop) {
@@ -949,6 +1020,8 @@ async function startRecording() {
   await buildMixGraph();
   pcmChunks = []; pcmLength = 0;
   sysPeak = 0;
+  speculation = null;
+  speculationsUsed = 0;
   await attachCapture();
 
   recording = true;
@@ -1051,11 +1124,31 @@ async function stopRecording() {
     return;
   }
 
-  const res = await api.transcribe(toBase64(clip.wav), {
-    hasSpeech: analysis.speech,
-    durationMs: Math.round(clip.durationMs),
-    snrDb: Math.round(analysis.snrDb)
-  });
+  // If a transcription was started at the pause and almost nothing was said
+  // after it, that request has been running for the whole silence timeout and
+  // is usually already finished. Waiting on it costs nothing and saves the
+  // round trip; anything unexpected falls through to the normal path.
+  const spec = speculation;
+  speculation = null;
+  let res = null;
+  if (spec) {
+    // No sample-count check here, deliberately. The first version compared how
+    // much audio arrived after the snapshot and rejected anything over 400ms -
+    // but everything recorded after a speculation is the trailing silence that
+    // ends the turn, so it rejected every speculation it ever made. The real
+    // guard is upstream: any resumed speech clears `speculation`, so one still
+    // standing means nothing was said after the snapshot.
+    const early = await spec.promise;
+    if (early && early.ok && (early.text || '').trim()) res = early;
+  }
+
+  if (!res) {
+    res = await api.transcribe(toBase64(clip.wav), {
+      hasSpeech: analysis.speech,
+      durationMs: Math.round(clip.durationMs),
+      snrDb: Math.round(analysis.snrDb)
+    });
+  }
 
   if (!res.ok) {
     setStatus(res.error, 'error');

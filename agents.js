@@ -218,14 +218,18 @@ function createAgentRunner({ readKey, log = () => {} } = {}) {
         });
       }
 
-      const suggestions = await suggestionsPromise;
+      // Deliberately not awaited. The answer is on screen by now; waiting here
+      // for a second model call to write four chips kept the turn "Working",
+      // and the microphone disabled, for seconds after the user could already
+      // read the answer. They arrive on their own through onEvent.
+      suggestionsPromise.catch(() => {});
 
       return {
         ok: firstResult.ok || !!(secondResult && secondResult.ok),
         aborted: !!firstResult.aborted,
         answers: { 1: firstResult, 2: secondResult },
         synthesis,
-        suggestions
+        suggestions: []
       };
     } finally {
       running.delete(requestId);
