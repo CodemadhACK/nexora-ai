@@ -30,6 +30,7 @@
       "audio-dsp.js",
       "audio-worklet.js",
       "voice-turn.js",
+      "markdown.js",
       "safe-mode.js",
       "presentation-mode.js",
       "presentation-watch.js",

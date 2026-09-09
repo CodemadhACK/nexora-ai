@@ -166,6 +166,46 @@
     text-transform: uppercase; letter-spacing: 1px; font-weight: 700;
   }
   .pane-body h3:first-child { margin-top: 2px; }
+
+  /* ---------- answer sections ----------
+     An answer arrives with up to nine headings. Two or three of them are the
+     words you say out loud; the rest is reference you glance at. Rendered flat
+     they all look the same, so mid-interview you scroll to find the sentence
+     you are meant to be reading. These rules put the spoken part first in the
+     eye, and let everything else fold out of the way. */
+
+  .sec { margin: 0 0 4px; }
+  .sec > .sec-body > :first-child { margin-top: 0; }
+  .sec > .sec-body > :last-child { margin-bottom: 0; }
+
+  /* Spoken: this is the sentence coming out of your mouth, so it reads at
+     conversational size with a rail down the side to find it at a glance. */
+  .sec.speak {
+    border-left: 2px solid var(--accent-2);
+    background: linear-gradient(90deg, rgba(34,211,238,0.07), rgba(34,211,238,0));
+    border-radius: 0 9px 9px 0;
+    padding: 9px 12px; margin: 10px 0 12px;
+  }
+  .sec.speak > h3 { margin: 0 0 6px; color: var(--accent-2); }
+  .sec.speak > .sec-body { font-size: 14.5px; line-height: 1.72; color: #f2f5ff; }
+  .sec.speak > .sec-body li { margin: 5px 0; }
+
+  /* Reference: still readable, deliberately quieter, and foldable. */
+  .sec.ref > h3 {
+    cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 6px;
+    color: var(--muted); font-size: 10.5px;
+  }
+  .sec.ref > h3::before {
+    content: ''; width: 0; height: 0; flex: 0 0 auto;
+    border-left: 4px solid currentColor;
+    border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent;
+    transform: rotate(90deg); transition: transform .15s;
+  }
+  .sec.ref > h3:hover { color: var(--text); }
+  .sec.ref.folded > h3::before { transform: rotate(0deg); }
+  .sec.ref.folded > .sec-body { display: none; }
+  .sec.ref > .sec-body { color: #d7dced; }
   .pane-body ul, .pane-body ol { margin: 0 0 10px; padding-left: 19px; }
   .pane-body li { margin: 3px 0; }
   .pane-body code { font-family: var(--mono); background: rgba(255,255,255,0.09); padding: 1px 5px; border-radius: 5px; font-size: 0.9em; }
@@ -849,6 +889,7 @@
 </div>
 <script src="audio-dsp.js"></script>
 <script src="voice-turn.js"></script>
+<script src="markdown.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>

@@ -105,11 +105,6 @@ function setStatus(text, kind) {
   statusBar.className = kind || '';
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-
 function scrollDown(force) {
   const nearBottom = stage.scrollHeight - stage.scrollTop - stage.clientHeight < 160;
   if (force || nearBottom) stage.scrollTop = stage.scrollHeight;
@@ -117,65 +112,10 @@ function scrollDown(force) {
 
 const bytes = (n) => (n > 1024 * 1024 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`);
 
-/**
- * Minimal, dependency-free markdown → HTML. Model output is escaped before any
- * of it is treated as markup, so a response cannot inject HTML.
- *
- * Fenced blocks are lifted out first and parked behind NUL sentinels — a
- * character that cannot occur in model output — then restored at the end, so
- * the inline rules never run over code.
- */
-function renderMarkdown(src) {
-  const NUL = String.fromCharCode(0);
-  const blocks = [];
+// Markdown rendering and the answer's section structure live in markdown.js so
+// the escaping rules and the section split can be tested without a browser.
+const { renderMarkdown, shouldFoldReference, escapeHtml } = window.NexoraMarkdown;
 
-  let text = String(src).replace(/```(\w*)\n?([\s\S]*?)(?:```|$)/g, (_m, lang, code) => {
-    const i = blocks.length;
-    blocks.push(
-      `<div class="code-block"><button class="copy" type="button">Copy</button>` +
-      `<pre data-lang="${escapeHtml(lang || '')}"><code>${escapeHtml(code.replace(/\n$/, ''))}</code></pre></div>`
-    );
-    return `${NUL}BLOCK${i}${NUL}`;
-  });
-
-  text = escapeHtml(text);
-
-  text = text.replace(/`([^`\n]+)`/g, (_m, c) => `<code>${c}</code>`);
-  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  text = text.replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>');
-  text = text.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" data-external="1">$1</a>');
-  text = text.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
-             .replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
-             .replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
-
-  const lines = text.split('\n');
-  let html = '', list = null, para = [];
-  const flushPara = () => { if (para.length) { html += `<p>${para.join('<br>')}</p>`; para = []; } };
-  const flushList = () => { if (list) { html += `</${list}>`; list = null; } };
-
-  const blockLine = new RegExp(`^${NUL}BLOCK\\d+${NUL}$`);
-
-  for (const line of lines) {
-    const ul = /^\s*[-*+]\s+(.*)$/.exec(line);
-    const ol = /^\s*\d+[.)]\s+(.*)$/.exec(line);
-    if (ul || ol) {
-      flushPara();
-      const want = ul ? 'ul' : 'ol';
-      if (list !== want) { flushList(); html += `<${want}>`; list = want; }
-      html += `<li>${(ul || ol)[1]}</li>`;
-    } else if (/^<h[123]>/.test(line) || blockLine.test(line)) {
-      flushPara(); flushList(); html += line;
-    } else if (line.trim() === '') {
-      flushPara(); flushList();
-    } else {
-      para.push(line);
-    }
-  }
-  flushPara(); flushList();
-
-  return html.replace(new RegExp(`${NUL}BLOCK(\\d+)${NUL}`, 'g'), (_m, i) => blocks[Number(i)]);
-}
 
 stage.addEventListener('click', (e) => {
   const copy = e.target.closest('.copy');
@@ -189,6 +129,11 @@ stage.addEventListener('click', (e) => {
   }
   const link = e.target.closest('a[data-external]');
   if (link) { e.preventDefault(); api.openExternal(link.getAttribute('href')); }
+
+  // Folding is for reference sections only. A spoken section is the reason the
+  // answer is on screen, so it is never something you can accidentally hide.
+  const fold = e.target.closest('.sec.ref > h3');
+  if (fold) { fold.parentElement.classList.toggle('folded'); return; }
 
   const suggestion = e.target.closest('.suggestion');
   if (suggestion) ask({ text: suggestion.dataset.prompt || suggestion.textContent });
@@ -385,7 +330,23 @@ function flushRender(view, slot) {
   clearTimeout(entry.pending);
   entry.pending = null;
   const text = view.raw.get(slot) || '';
-  if (text) entry.body.innerHTML = renderMarkdown(text);
+  if (text) {
+    entry.body.innerHTML = renderMarkdown(text);
+    collapseReference(entry.body, text);
+  }
+}
+
+/**
+ * Fold the reference sections of a long finished answer, leaving the spoken
+ * part open and the rest as a one-click outline.
+ *
+ * Only ever on the final render: during streaming this would fight the user,
+ * folding a section back up a frame after they opened it.
+ */
+function collapseReference(body, text) {
+  const refs = body.querySelectorAll('.sec.ref');
+  if (!shouldFoldReference(text, refs.length)) return;
+  refs.forEach((sec) => sec.classList.add('folded'));
 }
 
 function onRunEvent(payload) {
