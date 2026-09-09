@@ -3,3 +3,7 @@
 # the byte offsets its xref table points at, and the file would stop parsing on
 # any machine that checked it out.
 *.pdf binary
+
+# Screenshots. PNG is detected as binary reliably, but being explicit costs
+# nothing and keeps every asset under one rule.
+*.png binary

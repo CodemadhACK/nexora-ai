@@ -7,6 +7,20 @@ answer, the reasoning, working code, the complexity, and how to say it out loud.
 Everything runs locally: audio, screenshots and text go straight from this app to the
 provider you configured, using your own API key. There is no server in between.
 
+![The Nexora window on launch, with the hotkeys and a few starting prompts](docs/screenshot-home.png)
+
+Ask it something and the answer arrives in the shape an interview needs — the clarifying
+questions to ask first, how to say the approach out loud, then the working code and the
+complexity underneath.
+
+![A coding answer, opening with the clarifying questions to ask and the spoken explanation](docs/screenshot-answer.png)
+
+Screen Share Privacy keeps the window off a screen share while leaving it on your monitor,
+and says plainly what it cannot promise. There is a labeled test window so you can confirm
+the effect with your own capture tool before trusting it.
+
+![The Screen Share Privacy settings, with the limits spelled out](docs/screenshot-privacy.png)
+
 ---
 
 ## Quick start
