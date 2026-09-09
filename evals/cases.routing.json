@@ -1,0 +1,95 @@
+{
+ "cases": [
+  {
+   "id": "casual-conceptual",
+   "tags": [
+    "routing"
+   ],
+   "prompt": "Walk me through handling PDFs with poor text layers.",
+   "checks": {
+    "first_heading": "Interview explanation",
+    "forbid_heading": "Ask first",
+    "must_contain_headings": [
+     "Answer",
+     "From your experience"
+    ],
+    "no_followup_section": true
+   },
+   "rubric": "A direct explanation with the app's conceptual headings."
+  },
+  {
+   "id": "casual-coding",
+   "tags": [
+    "routing"
+   ],
+   "prompt": "Let us do a quick coding one: least recently used cache.",
+   "checks": {
+    "first_heading": "Ask first",
+    "must_contain_headings": [
+     "Code",
+     "Complexity"
+    ],
+    "must_have_code_block": true,
+    "no_followup_section": true
+   },
+   "rubric": "A correct LRU cache in Python with complexity."
+  },
+  {
+   "id": "casual-design",
+   "tags": [
+    "routing"
+   ],
+   "prompt": "Take me through the design for partitioning a large table.",
+   "checks": {
+    "first_heading": "Ask first",
+    "must_contain_headings": [
+     "Requirements",
+     "Scaling"
+    ],
+    "no_followup_section": true
+   },
+   "rubric": "Scopes, then designs with numbers."
+  },
+  {
+   "id": "casual-coding2",
+   "tags": [
+    "routing"
+   ],
+   "prompt": "Can you code up merge intervals for me?",
+   "checks": {
+    "first_heading": "Ask first",
+    "must_contain_headings": [
+     "Code",
+     "Complexity"
+    ],
+    "must_have_code_block": true,
+    "no_followup_section": true
+   },
+   "rubric": "Correct merge-intervals in Python with complexity."
+  },
+  {
+   "id": "control-greeting",
+   "tags": [
+    "routing"
+   ],
+   "prompt": "hello hello hello",
+   "checks": {
+    "max_headings": 0,
+    "max_chars": 400
+   },
+   "rubric": "A greeting: one or two sentences, no headings."
+  },
+  {
+   "id": "control-small",
+   "tags": [
+    "routing"
+   ],
+   "prompt": "quick one - is Python's GIL still a thing in 3.13?",
+   "checks": {
+    "max_headings": 0,
+    "max_chars": 700
+   },
+   "rubric": "A couple of sentences, no template."
+  }
+ ]
+}
