@@ -31,6 +31,7 @@
       "audio-worklet.js",
       "voice-turn.js",
       "markdown.js",
+      "highlight.min.js",
       "safe-mode.js",
       "presentation-mode.js",
       "presentation-watch.js",

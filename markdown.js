@@ -97,7 +97,7 @@
       const i = blocks.length;
       blocks.push(
         `<div class="code-block"><button class="copy" type="button">Copy</button>` +
-        `<pre data-lang="${escapeHtml(lang || '')}"><code>${escapeHtml(code.replace(/\n$/, ''))}</code></pre></div>`
+        `<pre data-lang="${escapeHtml(lang || '')}"><code${lang ? ` class="language-${escapeHtml(lang)}"` : ''}>${escapeHtml(code.replace(/\n$/, ''))}</code></pre></div>`
       );
       return `${NUL}BLOCK${i}${NUL}`;
     });

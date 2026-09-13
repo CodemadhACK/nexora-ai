@@ -333,7 +333,22 @@ function flushRender(view, slot) {
   if (text) {
     entry.body.innerHTML = renderMarkdown(text);
     collapseReference(entry.body, text);
+    highlightCode(entry.body);
   }
+}
+
+/**
+ * Syntax-highlight finished code blocks. Runs only from the final render — hljs
+ * on every streamed frame would be wasted work — and once per block, guarded by
+ * a data flag. If the library failed to load it does nothing, leaving the plain
+ * escaped <pre> exactly as before, so a missing hljs is degraded, never broken.
+ */
+function highlightCode(root) {
+  if (typeof hljs === 'undefined') return;
+  root.querySelectorAll('pre code:not([data-hl])').forEach((el) => {
+    el.dataset.hl = '1';
+    try { hljs.highlightElement(el); } catch { /* keep the escaped text */ }
+  });
 }
 
 /**

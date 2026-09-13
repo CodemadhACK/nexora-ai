@@ -233,6 +233,19 @@
   .code-block:hover .copy { opacity: 1; }
   .code-block .copy:hover { color: var(--text); }
 
+  /* highlight.js theme, inlined — the CSP allows inline styles but not a remote
+     stylesheet, so the token colours live here rather than in a hljs css file. */
+  .hljs { color: var(--text); background: transparent; }
+  .hljs-comment, .hljs-quote { color: var(--dim); font-style: italic; }
+  .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-doctag { color: #c084fc; }
+  .hljs-string, .hljs-attr, .hljs-meta .hljs-string, .hljs-regexp, .hljs-addition { color: #86efac; }
+  .hljs-number, .hljs-symbol, .hljs-bullet { color: #fca5a5; }
+  .hljs-title, .hljs-title.function_, .hljs-name { color: #7dd3fc; }
+  .hljs-title.class_, .hljs-type, .hljs-built_in, .hljs-class .hljs-title { color: #f0abfc; }
+  .hljs-variable.language_ { color: var(--warn); }
+  .hljs-params, .hljs-property, .hljs-attribute { color: var(--text); }
+  .hljs-meta, .hljs-deletion { color: var(--muted); }
+
   .typing { display: inline-flex; gap: 4px; align-items: center; height: 18px; }
   .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); animation: blink 1.2s infinite ease-in-out; }
   .typing i:nth-child(2) { animation-delay: .18s; }
@@ -908,6 +921,7 @@
 <script src="audio-dsp.js"></script>
 <script src="voice-turn.js"></script>
 <script src="markdown.js"></script>
+<script src="highlight.min.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>

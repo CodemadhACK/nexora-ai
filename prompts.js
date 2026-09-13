@@ -138,7 +138,13 @@ cost in one line, then explain what the optimised approach removes.
 
 ### Code
 Production-quality code in the language the question uses. Correct names, guard clauses,
-no placeholder comments, no dead code. It must run as written.
+no dead code. It must run as written.
+
+Comment it the way you would explain it to the interviewer: a short inline comment on
+each meaningful line saying what it does and, where the choice matters, why. Comment the
+logic, not the obvious syntax — annotate the line that maintains the invariant or picks the
+data structure, and skip the closing brace. Never leave a placeholder like "# your code
+here"; every comment states something true about the line it sits on.
 
 ### How it works
 Walk the important lines. Name the data structures and why each was chosen. Call out the
@@ -266,7 +272,8 @@ What is wrong, in one or two sentences. Name the actual cause, not the symptom.
 The mechanism behind the error. Point at the specific line, call or configuration.
 
 ### Fix
-The corrected code or configuration, complete enough to paste.
+The corrected code or configuration, complete enough to paste, with a short inline comment
+on the lines that changed saying what was wrong and what the fix does.
 
 ### How to verify
 What to run or check to confirm it is fixed.
