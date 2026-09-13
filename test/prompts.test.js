@@ -386,3 +386,17 @@ test('house style asks for conversational explanations', () => {
   const style = prompts.buildSystemInstruction({ persona: 'P', profile: null, role: 'solver', hasScreenshot: false });
   assert.match(style, /conversational/i, 'explanations should be told, not clipped into notes');
 });
+
+/**
+ * The résumé is not just a source for one "from experience" line — it should
+ * shape the whole answer. The instruction has to make the model actually read it
+ * for the person's level, stack and domain, while still refusing to fabricate.
+ */
+test('the profile instruction asks the model to digest the résumé, not just cite it', () => {
+  const profile = { enabled: true, resume: 'Senior SRE, 9 years, Kubernetes and Go.', projects: '', notes: '' };
+  const s = prompts.buildSystemInstruction({ profile });
+  assert.match(s, /read it/i, 'it should tell the model to read the profile up front');
+  assert.match(s, /level/i, 'it should calibrate depth to the person');
+  assert.match(s, /stack and domain/i, 'it should pull the tech stack and domain');
+  assert.match(s, /Never invent/i, 'the anti-fabrication guardrail must survive');
+});
