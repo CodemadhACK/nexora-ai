@@ -355,3 +355,34 @@ test('conceptual and behavioural answers do not open by asking questions', () =>
   assert.ok(!prompts.FORMATS.conceptual.includes('### Ask first'));
   assert.ok(!prompts.FORMATS.behavioural.includes('### Ask first'));
 });
+
+/**
+ * When an answer leans on a named algorithm, data structure or pattern, it should
+ * teach that thing on its own terms — not just use it — so the user can defend it
+ * when the interviewer digs in. The code-bearing formats carry that section; the
+ * behavioural and chat formats have no algorithm to explain and must not.
+ */
+test('the code-bearing formats explain the method they used', () => {
+  for (const kind of ['coding', 'system-design', 'debugging']) {
+    assert.ok(prompts.FORMATS[kind].includes('### About the approach'),
+      `${kind} should explain the technique it relied on`);
+  }
+  assert.ok(!prompts.FORMATS.behavioural.includes('### About the approach'), 'a STAR story has no algorithm to explain');
+  assert.equal(prompts.FORMATS.chat.includes('###'), false, 'chat stays heading-free');
+});
+
+test('the "about" section stays reference — it is read after, not spoken', () => {
+  // The spoken section still has to lead; the explanation of the technique is
+  // support the user glances at, never the first thing out of their mouth.
+  for (const kind of ['coding', 'system-design', 'debugging']) {
+    const headings = prompts.FORMATS[kind].split('\n').filter((l) => l.startsWith('### '));
+    assert.notEqual(headings[0], '### About the approach', `${kind} must not open with the method explainer`);
+    assert.ok(headings.indexOf('### About the approach') > headings.length - 3,
+      `${kind} should keep the method explainer near the bottom`);
+  }
+});
+
+test('house style asks for conversational explanations', () => {
+  const style = prompts.buildSystemInstruction({ persona: 'P', profile: null, role: 'solver', hasScreenshot: false });
+  assert.match(style, /conversational/i, 'explanations should be told, not clipped into notes');
+});
