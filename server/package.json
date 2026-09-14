@@ -1,0 +1,20 @@
+{
+  "name": "nexora-server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "commonjs",
+  "description": "Nexora AI platform backend â€” the source of truth for auth, plans, credits, entitlements, AI routing and payments.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "seed": "node src/db/seed.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^4.22.2",
+    "google-auth-library": "^11.0.2",
+    "nodemailer": "^10.0.9",
+    "pdf-parse": "^2.4.5"
+  }
+}
